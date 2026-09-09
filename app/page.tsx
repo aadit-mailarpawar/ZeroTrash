@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Bell, Camera, Check, CircleDollarSign, Gift, LayoutDashboard,
-  MapPin, Plus, Recycle, Scale, Sparkles, Store, Ticket, Upload,
+  ArrowRight, Bell, Broom, Camera, Check, CircleDollarSign, Gift, LayoutDashboard,
+  Leaf, LockKeyhole, LogOut, Mail, MapPin, Plus, Recycle, Scale, ShieldCheck,
+  Sparkles, Store, Ticket, TrendingUp, Upload, UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Toaster } from "@/components/ui/sonner";
+import { Input } from "@/components/ui/input";
 
 type Report = {
   id: number; location: string; wasteType: string; notes: string; beforeKey: string;
@@ -19,6 +21,7 @@ type Report = {
 };
 
 type AppState = { reports: Report[]; balance: number; totalWeight: number; verifiedCount: number };
+type UserProfile = { name: string; email: string };
 
 const rewards = [
   { id: "cafe-100", name: "Campus Café", value: 100, detail: "₹100 food voucher", icon: Store },
@@ -33,6 +36,7 @@ const statusCopy = {
 };
 
 export default function Home() {
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [tab, setTab] = useState("dashboard");
   const [state, setState] = useState<AppState>({ reports: [], balance: 0, totalWeight: 0, verifiedCount: 0 });
   const [reportOpen, setReportOpen] = useState(false);
@@ -45,13 +49,14 @@ export default function Home() {
   const mounted = useRef(true);
 
   const loadState = useCallback(async () => {
+    if (!user) return;
     try {
-      const response = await fetch("/api/state", { cache: "no-store" });
+      const response = await fetch(`/api/state?email=${encodeURIComponent(user.email)}`, { cache: "no-store" });
       if (!response.ok) return;
       const next = await response.json() as AppState;
       if (mounted.current) setState(next);
     } catch { /* Preview can keep the realistic demo state while storage starts. */ }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     mounted.current = true;
@@ -59,10 +64,24 @@ export default function Home() {
     return () => { mounted.current = false; };
   }, [loadState]);
 
+  const logIn = (profile: UserProfile) => {
+    setState({ reports: [], balance: 0, totalWeight: 0, verifiedCount: 0 });
+    setUser(profile);
+  };
+
+  const logOut = () => {
+    setUser(null);
+    setTab("dashboard");
+    setState({ reports: [], balance: 0, totalWeight: 0, verifiedCount: 0 });
+  };
+
   const submitReport = async (form: HTMLFormElement) => {
     setBusy(true);
     try {
-      const response = await fetch("/api/reports", { method: "POST", body: new FormData(form) });
+      const data = new FormData(form);
+      data.set("volunteer", user?.name ?? "Volunteer");
+      data.set("email", user?.email ?? "");
+      const response = await fetch("/api/reports", { method: "POST", body: data });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error || "Could not save the report");
       await loadState(); setReportOpen(false); form.reset(); toast.success("Trash spot reported. Let’s clean it up!");
@@ -74,7 +93,9 @@ export default function Home() {
     if (!afterReport) return;
     setBusy(true);
     try {
-      const response = await fetch(`/api/reports/${afterReport.id}/after`, { method: "POST", body: new FormData(form) });
+      const data = new FormData(form);
+      data.set("email", user?.email ?? "");
+      const response = await fetch(`/api/reports/${afterReport.id}/after`, { method: "POST", body: data });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error || "Could not save the photo");
       await loadState(); setAfterReport(null); toast.success("Cleanup proof added. Take it to a collection centre next.");
@@ -83,12 +104,12 @@ export default function Home() {
   };
 
   const recordWeight = useCallback(async (reportId: number, kilograms: number, collectionCentre: string) => {
-    const response = await fetch(`/api/reports/${reportId}/weigh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ weight: kilograms, center: collectionCentre }) });
+    const response = await fetch(`/api/reports/${reportId}/weigh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ weight: kilograms, center: collectionCentre, email: user?.email }) });
     const result = await response.json() as { error?: string; credits?: number };
     if (!response.ok) throw new Error(result.error || "Could not record the weigh-in");
     await loadState();
     return result;
-  }, [loadState]);
+  }, [loadState, user]);
 
   const submitWeight = async () => {
     if (!weighReport) return;
@@ -103,12 +124,12 @@ export default function Home() {
   };
 
   const redeemVoucher = useCallback(async (rewardId: string) => {
-    const response = await fetch("/api/redeem", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rewardId }) });
+    const response = await fetch("/api/redeem", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rewardId, email: user?.email }) });
     const result = await response.json() as { error?: string; code?: string };
     if (!response.ok) throw new Error(result.error || "Could not redeem the voucher");
     await loadState();
     return result;
-  }, [loadState]);
+  }, [loadState, user]);
 
   const confirmRedeem = async () => {
     if (!redeemReward) return;
@@ -121,6 +142,7 @@ export default function Home() {
   };
 
   useEffect(() => {
+    if (!user) return;
     const context = document.modelContext;
     if (!context?.registerTool) return;
     const lifecycle = new AbortController();
@@ -137,10 +159,15 @@ export default function Home() {
     }, { signal: lifecycle.signal });
     void Promise.allSettled([Promise.resolve(reportTool), Promise.resolve(weightTool)]);
     return () => lifecycle.abort();
-  }, [recordWeight]);
+  }, [recordWeight, user]);
 
   const pendingCount = useMemo(() => state.reports.filter((report) => report.status !== "verified").length, [state.reports]);
   const greeting = "afternoon";
+
+  if (!user) return <LoginScreen onLogin={logIn} />;
+
+  const firstName = user.name.trim().split(/\s+/)[0] || "Volunteer";
+  const initials = user.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "ZT";
 
   return (
     <Tabs value={tab} onValueChange={setTab} className="app-shell">
@@ -155,11 +182,11 @@ export default function Home() {
       </aside>
 
       <section className="workspace">
-        <header className="topbar"><div className="mobile-brand"><Recycle /> zerotrash</div><div className="top-actions"><button className="icon-button" aria-label="Notifications"><Bell /></button><div className="avatar">SK</div><div className="profile"><strong>Samira Khan</strong><span>Eco volunteer</span></div></div></header>
+        <header className="topbar"><div className="mobile-brand"><Recycle /> zerotrash</div><div className="top-actions"><button className="icon-button" aria-label="Notifications"><Bell /></button><div className="avatar">{initials}</div><div className="profile"><strong>{user.name}</strong><span>{user.email}</span></div><button className="icon-button logout-button" aria-label="Log out" title="Log out" onClick={logOut}><LogOut /></button></div></header>
         <TabsList className="mobile-tabs" aria-label="Primary navigation"><TabsTrigger value="dashboard">Home</TabsTrigger><TabsTrigger value="cleanups">Cleanups</TabsTrigger><TabsTrigger value="rewards">Rewards</TabsTrigger></TabsList>
 
         <TabsContent value="dashboard" className="content">
-          <section className="welcome"><div><p className="eyebrow green">YOUR CAMPUS IMPACT</p><h1>Good {greeting}, Samira.</h1><p>{pendingCount ? `${pendingCount} cleanup${pendingCount === 1 ? "" : "s"} need your next step.` : "Your campus is looking cleaner already."} Ready to make a difference?</p></div><Button className="report-button" size="lg" onClick={() => setReportOpen(true)}><Plus /> Report trash</Button></section>
+          <section className="welcome"><div><p className="eyebrow green">YOUR CAMPUS IMPACT</p><h1>Good {greeting}, {firstName}.</h1><p>{pendingCount ? `${pendingCount} cleanup${pendingCount === 1 ? "" : "s"} need your next step.` : "Your campus is looking cleaner already."} Ready to make a difference?</p></div><Button className="report-button" size="lg" onClick={() => setReportOpen(true)}><Plus /> Report trash</Button></section>
           <section className="stats-grid" aria-label="Impact summary">
             <article className="stat-card green-card"><div><span className="stat-label">AVAILABLE BALANCE</span><strong>{state.balance}</strong><span className="unit">credits</span></div><div className="coin"><Sparkles /></div><button onClick={() => setTab("rewards")}>Redeem rewards <span>→</span></button></article>
             <article className="stat-card"><span className="stat-label">TOTAL COLLECTED</span><strong>{state.totalWeight.toFixed(1)} <span>kg</span></strong><p>Across {state.verifiedCount} verified cleanups</p></article>
@@ -191,6 +218,76 @@ export default function Home() {
     </Tabs>
   );
 }
+
+function LoginScreen({ onLogin }: { onLogin: (profile: UserProfile) => void }) {
+  const [error, setError] = useState("");
+
+  const submit = (form: HTMLFormElement) => {
+    const data = new FormData(form);
+    const name = String(data.get("name") ?? "").trim();
+    const email = String(data.get("email") ?? "").trim().toLowerCase();
+    const password = String(data.get("password") ?? "");
+    if (name.length < 2) { setError("Enter your name to continue."); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError("Enter a valid college email."); return; }
+    if (password.length < 4) { setError("Use at least 4 characters for the demo password."); return; }
+    setError("");
+    onLogin({ name, email });
+  };
+
+  return (
+    <main className="login-shell">
+      <header className="login-nav">
+        <div className="brand login-brand"><span className="brand-mark"><Recycle /></span><span>zero<span>trash</span></span></div>
+        <div className="login-nav-note"><span className="live-dot" /> Campus impact platform</div>
+      </header>
+
+      <div className="login-grid">
+        <section className="login-copy">
+          <div className="login-form-wrap">
+            <div className="login-kicker"><Leaf /> Cleaner campus. Shared rewards.</div>
+            <h1>Turn a quick cleanup into <em>real impact.</em></h1>
+            <p className="login-lead">Join your campus community to report waste, document the cleanup and earn credits for every verified kilogram.</p>
+
+            <form className="login-form" onSubmit={(event) => { event.preventDefault(); submit(event.currentTarget); }}>
+              <div className="login-field"><label htmlFor="login-name">Your name</label><div className="input-wrap"><UserRound /><Input id="login-name" name="name" autoComplete="name" placeholder="e.g. Aanya Mehta" required /></div></div>
+              <div className="login-field"><label htmlFor="login-email">College email</label><div className="input-wrap"><Mail /><Input id="login-email" name="email" type="email" autoComplete="email" placeholder="you@college.edu" required /></div></div>
+              <div className="login-field"><div className="field-label-row"><label htmlFor="login-password">Password</label><span>Secure campus access</span></div><div className="input-wrap"><LockKeyhole /><Input id="login-password" name="password" type="password" autoComplete="current-password" placeholder="Enter your password" required /></div></div>
+              {error && <p className="login-error" role="alert">{error}</p>}
+              <Button type="submit" size="lg" className="login-submit">Enter ZeroTrash <ArrowRight /></Button>
+              <p className="demo-note"><ShieldCheck /> Prototype access — any valid college email works.</p>
+            </form>
+          </div>
+        </section>
+
+        <section className="journey-stage" aria-labelledby="journey-title">
+          <div className="stage-grid" aria-hidden="true" />
+          <div className="stage-glow glow-one" aria-hidden="true" />
+          <div className="stage-glow glow-two" aria-hidden="true" />
+          <div className="journey-content">
+            <div className="journey-head"><div><span>THE ZEROTRASH LOOP</span><h2 id="journey-title">Four moves. One cleaner campus.</h2></div><div className="loop-badge"><TrendingUp /> Live impact</div></div>
+            <div className="flow-chart" aria-label="Report, clean, weigh and redeem flow">
+              <FlowNode number="01" icon={Camera} title="Spot it" text="Photo + location" />
+              <FlowLink />
+              <FlowNode number="02" icon={Broom} title="Clean it" text="Upload after proof" />
+              <FlowLink />
+              <FlowNode number="03" icon={Scale} title="Weigh it" text="Centre verifies kg" />
+              <FlowLink />
+              <FlowNode number="04" icon={Gift} title="Redeem it" text="Credits = voucher" accent />
+            </div>
+            <div className="impact-equation"><span><strong>1 kg</strong><small>verified waste</small></span><ArrowRight /><span><strong>30</strong><small>green credits</small></span><ArrowRight /><span><strong>₹30</strong><small>voucher value</small></span></div>
+            <div className="stage-bottom"><div className="before-after"><div><Camera /><span><small>BEFORE</small><strong>Report the spot</strong></span></div><i><ArrowRight /></i><div className="after"><Check /><span><small>AFTER</small><strong>Prove the change</strong></span></div></div><div className="campus-score"><span>Campus goal</span><strong>742 <small>kg</small></strong><div><i /></div><small>74% cleaned</small></div></div>
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
+
+function FlowNode({ number, icon: Icon, title, text, accent = false }: { number: string; icon: typeof Camera; title: string; text: string; accent?: boolean }) {
+  return <article className={`flow-node${accent ? " accent" : ""}`}><span className="flow-number">{number}</span><div className="flow-icon"><Icon /></div><strong>{title}</strong><p>{text}</p></article>;
+}
+
+function FlowLink() { return <div className="flow-link" aria-hidden="true"><span /><ArrowRight /></div>; }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <div className="field"><span>{label}</span>{children}</div>; }
 

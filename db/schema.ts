@@ -3,7 +3,8 @@ import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const reports = sqliteTable("reports", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  volunteer: text("volunteer").notNull().default("Samira Khan"),
+  volunteer: text("volunteer").notNull().default("Volunteer"),
+  volunteerEmail: text("volunteer_email").notNull().default(""),
   location: text("location").notNull(),
   wasteType: text("waste_type").notNull(),
   notes: text("notes").notNull().default(""),
@@ -21,6 +22,7 @@ export const creditLedger = sqliteTable("credit_ledger", {
   amount: integer("amount").notNull(),
   kind: text("kind").notNull(),
   detail: text("detail").notNull(),
+  volunteerEmail: text("volunteer_email").notNull().default(""),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
@@ -30,5 +32,6 @@ export const redemptions = sqliteTable("redemptions", {
   rewardName: text("reward_name").notNull(),
   credits: integer("credits").notNull(),
   code: text("code").notNull(),
+  volunteerEmail: text("volunteer_email").notNull().default(""),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
