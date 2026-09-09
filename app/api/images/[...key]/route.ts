@@ -1,7 +1,9 @@
 import { getBucket } from "@/db/bindings";
+import { getLocalUser } from "@/lib/local-auth";
 
-export async function GET(_request: Request, { params }: { params: Promise<{ key: string[] }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ key: string[] }> }) {
   try {
+    if (!await getLocalUser(request)) return new Response("Not signed in", { status: 401 });
     const key = (await params).key.join("/");
     if (!key.startsWith("cleanups/")) return new Response("Not found", { status: 404 });
     const object = await getBucket().get(key);

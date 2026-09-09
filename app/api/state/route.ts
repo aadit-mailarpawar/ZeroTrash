@@ -1,13 +1,15 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { creditLedger, reports } from "@/db/schema";
+import { getLocalUser } from "@/lib/local-auth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
-    const email = new URL(request.url).searchParams.get("email")?.trim().toLowerCase() ?? "";
-    if (!email) return Response.json({ error: "Email is required" }, { status: 400 });
+    const user = await getLocalUser(request);
+    if (!user) return Response.json({ error: "Sign in to view your impact" }, { status: 401 });
+    const email = user.email;
     const db = getDb();
     const [rows, totals, balance] = await Promise.all([
       db.select().from(reports).where(eq(reports.volunteerEmail, email)).orderBy(desc(reports.createdAt), desc(reports.id)).limit(40),

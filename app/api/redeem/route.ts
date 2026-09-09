@@ -1,4 +1,5 @@
 import { getRawDb } from "@/db/bindings";
+import { getLocalUser } from "@/lib/local-auth";
 
 const rewards = {
   "cafe-100": { name: "Campus Café", cost: 100 },
@@ -8,9 +9,10 @@ const rewards = {
 
 export async function POST(request: Request) {
   try {
-    const { rewardId, email: rawEmail } = await request.json() as { rewardId?: string; email?: string };
-    const email = String(rawEmail ?? "").trim().toLowerCase();
-    if (!email) return Response.json({ error: "Sign in before redeeming a voucher" }, { status: 401 });
+    const user = await getLocalUser(request);
+    if (!user) return Response.json({ error: "Sign in before redeeming a voucher" }, { status: 401 });
+    const email = user.email;
+    const { rewardId } = await request.json() as { rewardId?: string };
     const reward = rewards[rewardId as keyof typeof rewards];
     if (!reward) return Response.json({ error: "Reward not found" }, { status: 404 });
     const db = getRawDb();
