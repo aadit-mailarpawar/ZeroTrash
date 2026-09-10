@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     const passwordHash = await hashPassword(password, salt);
     const user = await db.prepare("INSERT INTO users (name, email, password_hash, salt) VALUES (?, ?, ?, ?) RETURNING id, name, email").bind(name, email, passwordHash, salt).first<{ id: number; name: string; email: string }>();
     if (!user) throw new Error("User creation failed");
-    const cookie = await startSession(user.id);
+    const cookie = await startSession(user.id, "volunteer");
     return Response.json({ user: { name: user.name, email: user.email, role: "volunteer" } }, { status: 201, headers: { "Set-Cookie": cookie } });
   } catch (error) {
     console.error("signup failed", error);

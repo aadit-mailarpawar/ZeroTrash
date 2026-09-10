@@ -57,7 +57,7 @@ export default function AdminPage() {
     let active = true;
     const start = async () => {
       try {
-        const response = await fetch("/api/auth/me", { cache: "no-store" });
+        const response = await fetch("/api/auth/me?role=admin", { cache: "no-store" });
         if (!response.ok) { window.location.replace("/admin/signin"); return; }
         const result = await response.json() as { user: AdminUser | { role: "volunteer" } };
         if (result.user.role !== "admin") { window.location.replace("/admin/signin"); return; }
@@ -102,7 +102,7 @@ export default function AdminPage() {
   };
 
   const logOut = async () => {
-    await fetch("/api/auth/signout", { method: "POST" });
+    await fetch("/api/auth/signout?role=admin", { method: "POST" });
     window.location.assign("/admin/signin");
   };
 

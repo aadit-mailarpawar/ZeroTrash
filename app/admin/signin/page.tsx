@@ -23,7 +23,7 @@ export default function AdminSignInPage() {
       const result = await response.json() as { error?: string; user?: { role: "volunteer" | "admin" } };
       if (!response.ok) { setError(result.error || "Could not sign in"); return; }
       if (result.user?.role !== "admin") {
-        await fetch("/api/auth/signout", { method: "POST" });
+        await fetch("/api/auth/signout?role=volunteer", { method: "POST" });
         setError("This account does not have collection-centre admin access.");
         return;
       }

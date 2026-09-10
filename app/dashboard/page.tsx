@@ -64,7 +64,7 @@ export default function Home() {
     let active = true;
     const loadUser = async () => {
       try {
-        const response = await fetch("/api/auth/me", { cache: "no-store" });
+        const response = await fetch("/api/auth/me?role=volunteer", { cache: "no-store" });
         if (!response.ok) { window.location.replace("/signin"); return; }
         const result = await response.json() as { user: UserProfile };
         if (result.user.role !== "volunteer") { window.location.replace("/admin"); return; }
@@ -93,7 +93,7 @@ export default function Home() {
   }, [loadState]);
 
   const logOut = async () => {
-    await fetch("/api/auth/signout", { method: "POST" });
+    await fetch("/api/auth/signout?role=volunteer", { method: "POST" });
     window.location.assign("/signin");
   };
 

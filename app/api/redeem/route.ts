@@ -9,7 +9,7 @@ const rewards = {
 
 export async function POST(request: Request) {
   try {
-    const user = await getLocalUser(request);
+    const user = await getLocalUser(request, "volunteer");
     if (!user) return Response.json({ error: "Sign in before redeeming a voucher" }, { status: 401 });
     if (user.role !== "volunteer") return Response.json({ error: "Volunteer access required" }, { status: 403 });
     const email = user.email;

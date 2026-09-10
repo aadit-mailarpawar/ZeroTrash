@@ -1,9 +1,14 @@
 import { getRawDb } from "@/db/bindings";
 
-const COOKIE_NAME = "zt_session";
+const LEGACY_COOKIE_NAME = "zt_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 7;
 
-export type LocalUser = { id: number; name: string; email: string; role: "volunteer" | "admin" };
+export type UserRole = "volunteer" | "admin";
+export type LocalUser = { id: number; name: string; email: string; role: UserRole };
+
+function cookieName(role: UserRole) {
+  return role === "admin" ? "zt_admin_session" : "zt_volunteer_session";
+}
 
 function bytesToBase64(bytes: Uint8Array) {
   let binary = "";
@@ -43,38 +48,49 @@ export function constantTimeEqual(left: string, right: string) {
   return mismatch === 0;
 }
 
-export async function startSession(userId: number) {
+export async function startSession(userId: number, role: UserRole) {
   const token = randomToken();
   const tokenHash = await sha256(token);
   const expiresAt = Math.floor(Date.now() / 1000) + SESSION_SECONDS;
   const db = getRawDb();
   await db.prepare("DELETE FROM sessions WHERE expires_at <= ?").bind(Math.floor(Date.now() / 1000)).run();
   await db.prepare("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)").bind(tokenHash, userId, expiresAt).run();
-  return `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_SECONDS}`;
+  return `${cookieName(role)}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_SECONDS}`;
 }
 
-function readCookie(request: Request) {
+function readCookie(request: Request, targetName: string) {
   const cookie = request.headers.get("cookie") ?? "";
   for (const part of cookie.split(";")) {
     const [name, ...rest] = part.trim().split("=");
-    if (name === COOKIE_NAME) return rest.join("=");
+    if (name === targetName) return rest.join("=");
   }
   return null;
 }
 
-export async function getLocalUser(request: Request): Promise<LocalUser | null> {
-  const token = readCookie(request);
-  if (!token) return null;
-  const tokenHash = await sha256(token);
-  return getRawDb().prepare("SELECT users.id, users.name, users.email, users.role FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?").bind(tokenHash, Math.floor(Date.now() / 1000)).first<LocalUser>();
+export async function getLocalUser(request: Request, requiredRole?: UserRole): Promise<LocalUser | null> {
+  const names = requiredRole
+    ? [cookieName(requiredRole), LEGACY_COOKIE_NAME]
+    : [LEGACY_COOKIE_NAME, cookieName("volunteer"), cookieName("admin")];
+
+  for (const name of names) {
+    const token = readCookie(request, name);
+    if (!token) continue;
+    const tokenHash = await sha256(token);
+    const user = await getRawDb().prepare("SELECT users.id, users.name, users.email, users.role FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?").bind(tokenHash, Math.floor(Date.now() / 1000)).first<LocalUser>();
+    if (user && (!requiredRole || user.role === requiredRole)) return user;
+  }
+  return null;
 }
 
 export function isAdminUser(user: LocalUser | null): user is LocalUser & { role: "admin" } {
   return user?.role === "admin";
 }
 
-export async function endSession(request: Request) {
-  const token = readCookie(request);
-  if (token) await getRawDb().prepare("DELETE FROM sessions WHERE token_hash = ?").bind(await sha256(token)).run();
-  return `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+export async function endSession(request: Request, role: UserRole) {
+  const names = [cookieName(role), LEGACY_COOKIE_NAME];
+  const tokens = new Set(names.map((name) => readCookie(request, name)).filter((token): token is string => Boolean(token)));
+  for (const token of tokens) {
+    await getRawDb().prepare("DELETE FROM sessions WHERE token_hash = ?").bind(await sha256(token)).run();
+  }
+  return names.map((name) => `${name}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
 }

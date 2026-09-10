@@ -3,7 +3,8 @@ import { getLocalUser } from "@/lib/local-auth";
 
 export async function GET(request: Request, { params }: { params: Promise<{ key: string[] }> }) {
   try {
-    const user = await getLocalUser(request);
+    const admin = await getLocalUser(request, "admin");
+    const user = admin ?? await getLocalUser(request, "volunteer");
     if (!user) return new Response("Not signed in", { status: 401 });
     const key = (await params).key.join("/");
     if (!key.startsWith("cleanups/")) return new Response("Not found", { status: 404 });

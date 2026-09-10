@@ -4,7 +4,7 @@ import { getLocalUser } from "@/lib/local-auth";
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   let key: string | null = null;
   try {
-    const user = await getLocalUser(request);
+    const user = await getLocalUser(request, "volunteer");
     if (!user) return Response.json({ error: "Sign in before adding cleanup proof" }, { status: 401 });
     if (user.role !== "volunteer") return Response.json({ error: "Volunteer access required" }, { status: 403 });
     const id = Number((await params).id);

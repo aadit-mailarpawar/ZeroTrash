@@ -23,7 +23,7 @@ type AdminReport = {
 
 export async function GET(request: Request) {
   try {
-    const user = await getLocalUser(request);
+    const user = await getLocalUser(request, "admin");
     if (!user) return Response.json({ error: "Admin sign-in required" }, { status: 401 });
     if (!isAdminUser(user)) return Response.json({ error: "Admin access required" }, { status: 403 });
 

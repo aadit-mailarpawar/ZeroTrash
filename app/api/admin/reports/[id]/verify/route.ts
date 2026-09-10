@@ -3,7 +3,7 @@ import { getLocalUser, isAdminUser } from "@/lib/local-auth";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const user = await getLocalUser(request);
+    const user = await getLocalUser(request, "admin");
     if (!user) return Response.json({ error: "Admin sign-in required" }, { status: 401 });
     if (!isAdminUser(user)) return Response.json({ error: "Admin access required" }, { status: 403 });
 
