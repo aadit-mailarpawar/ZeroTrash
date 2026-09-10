@@ -19,7 +19,7 @@ type Report = {
 };
 
 type AppState = { reports: Report[]; balance: number; totalWeight: number; verifiedCount: number };
-type UserProfile = { name: string; email: string };
+type UserProfile = { name: string; email: string; role: "volunteer" | "admin" };
 
 const rewards = [
   { id: "cafe-100", name: "Campus Café", value: 100, detail: "₹100 food voucher", icon: Store },
@@ -29,7 +29,7 @@ const rewards = [
 
 const statusCopy = {
   awaiting_cleanup: { label: "Awaiting cleanup", className: "waiting" },
-  awaiting_weighing: { label: "Ready to weigh", className: "weighing" },
+  awaiting_weighing: { label: "Pending admin verification", className: "weighing" },
   verified: { label: "Verified", className: "verified" },
 };
 
@@ -56,11 +56,8 @@ export default function Home() {
   const [state, setState] = useState<AppState>({ reports: [], balance: 0, totalWeight: 0, verifiedCount: 0 });
   const [reportOpen, setReportOpen] = useState(false);
   const [afterReport, setAfterReport] = useState<Report | null>(null);
-  const [weighReport, setWeighReport] = useState<Report | null>(null);
   const [redeemReward, setRedeemReward] = useState<(typeof rewards)[number] | null>(null);
   const [busy, setBusy] = useState(false);
-  const [centre, setCentre] = useState("Main Gate Green Point");
-  const [weight, setWeight] = useState("");
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -70,6 +67,7 @@ export default function Home() {
         const response = await fetch("/api/auth/me", { cache: "no-store" });
         if (!response.ok) { window.location.replace("/signin"); return; }
         const result = await response.json() as { user: UserProfile };
+        if (result.user.role !== "volunteer") { window.location.replace("/admin"); return; }
         if (active) setUser(result.user);
       } catch { window.location.replace("/signin"); }
       finally { if (active) setAuthReady(true); }
@@ -117,28 +115,8 @@ export default function Home() {
       const response = await fetch(`/api/reports/${afterReport.id}/after`, { method: "POST", body: new FormData(form) });
       const result = await readApiResult(response);
       if (!response.ok) throw new Error(result.error || "Could not save the photo");
-      await loadState(); setAfterReport(null); toast.success("Cleanup proof added. Take it to a collection centre next.");
+      await loadState(); setAfterReport(null); toast.success("Cleanup proof added. Take it to a collection centre for admin verification.");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save the photo"); }
-    finally { setBusy(false); }
-  };
-
-  const recordWeight = useCallback(async (reportId: number, kilograms: number, collectionCentre: string) => {
-    const response = await fetch(`/api/reports/${reportId}/weigh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ weight: kilograms, center: collectionCentre }) });
-    const result = await response.json() as { error?: string; credits?: number };
-    if (!response.ok) throw new Error(result.error || "Could not record the weigh-in");
-    await loadState();
-    return result;
-  }, [loadState]);
-
-  const submitWeight = async () => {
-    if (!weighReport) return;
-    const kilograms = Number(weight);
-    if (!Number.isFinite(kilograms) || kilograms <= 0) { toast.error("Enter a valid weight"); return; }
-    setBusy(true);
-    try {
-      const result = await recordWeight(weighReport.id, kilograms, centre);
-      setWeighReport(null); setWeight(""); toast.success(`Verified! ${result.credits} credits added.`);
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not record the weigh-in"); }
     finally { setBusy(false); }
   };
 
@@ -170,15 +148,9 @@ export default function Home() {
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: false, untrustedContentHint: false }, execute: () => { setTab("dashboard"); setReportOpen(true); return { status: "report_form_open" }; },
     }, { signal: lifecycle.signal });
-    const weightTool = context.registerTool({
-      name: "record_collection_weight", title: "Record collection weight", description: "Record a collection-centre weigh-in for a cleaned report and award 30 credits per kilogram.",
-      inputSchema: { type: "object", properties: { reportId: { type: "number" }, kilograms: { type: "number", exclusiveMinimum: 0 }, center: { type: "string", minLength: 2 } }, required: ["reportId", "kilograms", "center"], additionalProperties: false },
-      annotations: { readOnlyHint: false, untrustedContentHint: false },
-      execute: async (input: unknown) => { const value = input as { reportId: number; kilograms: number; center: string }; if (!Number.isInteger(value.reportId) || !Number.isFinite(value.kilograms) || value.kilograms <= 0 || !value.center?.trim()) throw new Error("A valid report, weight and centre are required"); return recordWeight(value.reportId, value.kilograms, value.center.trim()); },
-    }, { signal: lifecycle.signal });
-    void Promise.allSettled([Promise.resolve(reportTool), Promise.resolve(weightTool)]);
+    void Promise.resolve(reportTool);
     return () => lifecycle.abort();
-  }, [recordWeight, user]);
+  }, [user]);
 
   const pendingCount = useMemo(() => state.reports.filter((report) => report.status !== "verified").length, [state.reports]);
   const greeting = "afternoon";
@@ -211,12 +183,12 @@ export default function Home() {
             <article className="stat-card"><span className="stat-label">TOTAL COLLECTED</span><strong>{state.totalWeight.toFixed(1)} <span>kg</span></strong><p>Across {state.verifiedCount} verified cleanups</p></article>
             <article className="stat-card"><span className="stat-label">CAMPUS RANK</span><strong>#12</strong><p><span className="up">↑ 3 places</span> this month</p></article>
           </section>
-          <section className="lower-grid"><article className="panel cleanups-panel"><div className="panel-head"><div><span className="kicker">YOUR CLEANUPS</span><h2>{state.reports.length ? "Keep the streak alive" : "Start your first cleanup"}</h2></div>{state.reports.length > 0 && <button onClick={() => setTab("cleanups")}>View all</button>}</div>{state.reports.length ? state.reports.slice(0, 2).map((report) => <CleanupRow key={report.id} report={report} onAfter={setAfterReport} onWeigh={setWeighReport} />) : <div className="empty-state"><span><Camera /></span><div><strong>No reports yet</strong><p>Spot some trash on campus? Add a before photo to begin.</p></div><Button variant="outline" onClick={() => setReportOpen(true)}>Report a spot</Button></div>}</article><ProcessPanel /></section>
+          <section className="lower-grid"><article className="panel cleanups-panel"><div className="panel-head"><div><span className="kicker">YOUR CLEANUPS</span><h2>{state.reports.length ? "Keep the streak alive" : "Start your first cleanup"}</h2></div>{state.reports.length > 0 && <button onClick={() => setTab("cleanups")}>View all</button>}</div>{state.reports.length ? state.reports.slice(0, 2).map((report) => <CleanupRow key={report.id} report={report} onAfter={setAfterReport} />) : <div className="empty-state"><span><Camera /></span><div><strong>No reports yet</strong><p>Spot some trash on campus? Add a before photo to begin.</p></div><Button variant="outline" onClick={() => setReportOpen(true)}>Report a spot</Button></div>}</article><ProcessPanel /></section>
         </TabsContent>
 
         <TabsContent value="cleanups" className="content page-content">
           <section className="page-title"><div><p className="eyebrow green">PROOF TO PROGRESS</p><h1>My cleanups</h1><p>Each report moves through cleanup, collection-centre weighing and verification.</p></div><Button className="report-button" onClick={() => setReportOpen(true)}><Plus /> New report</Button></section>
-          <div className="report-list">{state.reports.length ? state.reports.map((report) => <article className="report-card" key={report.id}><div className="report-thumb">{report.beforeKey ? <img src={`/api/images/${encodeURIComponent(report.beforeKey)}`} alt="Trash before cleanup" /> : <Camera />}</div><div className="report-main"><div className="report-title-row"><div><span className="status-step">REPORT #{String(report.id).padStart(3, "0")}</span><h2>{report.location}</h2></div><span className={`status ${statusCopy[report.status].className}`}>{statusCopy[report.status].label}</span></div><div className="report-meta"><span><Recycle /> {report.wasteType}</span><span><MapPin /> Campus</span>{report.weight ? <span><Scale /> {report.weight.toFixed(1)} kg</span> : null}</div><div className="journey"><span className="done"><i><Check /></i>Reported</span><b /><span className={report.status !== "awaiting_cleanup" ? "done" : ""}><i>{report.status !== "awaiting_cleanup" ? <Check /> : "2"}</i>Cleaned</span><b /><span className={report.status === "verified" ? "done" : ""}><i>{report.status === "verified" ? <Check /> : "3"}</i>Weighed</span></div><div className="report-actions">{report.status === "awaiting_cleanup" && <Button onClick={() => setAfterReport(report)}><Camera /> Add after photo</Button>}{report.status === "awaiting_weighing" && <Button onClick={() => setWeighReport(report)}><Scale /> Record weigh-in</Button>}{report.status === "verified" && <span className="earned"><CircleDollarSign /> +{report.credits} credits earned</span>}</div></div></article>) : <div className="empty-page"><span><Recycle /></span><h2>Your cleanup journey starts here.</h2><p>Report a trash spot with a clear before photo, then return after you clean it.</p><Button onClick={() => setReportOpen(true)}><Plus /> Create first report</Button></div>}</div>
+          <div className="report-list">{state.reports.length ? state.reports.map((report) => <article className="report-card" key={report.id}><div className="report-thumb">{report.beforeKey ? <img src={`/api/images/${encodeURIComponent(report.beforeKey)}`} alt="Trash before cleanup" /> : <Camera />}</div><div className="report-main"><div className="report-title-row"><div><span className="status-step">REPORT #{String(report.id).padStart(3, "0")}</span><h2>{report.location}</h2></div><span className={`status ${statusCopy[report.status].className}`}>{statusCopy[report.status].label}</span></div><div className="report-meta"><span><Recycle /> {report.wasteType}</span><span><MapPin /> Campus</span>{report.weight ? <span><Scale /> {report.weight.toFixed(1)} kg</span> : null}</div><div className="journey"><span className="done"><i><Check /></i>Reported</span><b /><span className={report.status !== "awaiting_cleanup" ? "done" : ""}><i>{report.status !== "awaiting_cleanup" ? <Check /> : "2"}</i>Cleaned</span><b /><span className={report.status === "verified" ? "done" : ""}><i>{report.status === "verified" ? <Check /> : "3"}</i>Verified</span></div><div className="report-actions">{report.status === "awaiting_cleanup" && <Button onClick={() => setAfterReport(report)}><Camera /> Add after photo</Button>}{report.status === "awaiting_weighing" && <span className="centre-wait"><Scale /> Take the waste to a collection centre for verification</span>}{report.status === "verified" && <span className="earned"><CircleDollarSign /> +{report.credits} credits earned</span>}</div></div></article>) : <div className="empty-page"><span><Recycle /></span><h2>Your cleanup journey starts here.</h2><p>Report a trash spot with a clear before photo, then return after you clean it.</p><Button onClick={() => setReportOpen(true)}><Plus /> Create first report</Button></div>}</div>
         </TabsContent>
 
         <TabsContent value="rewards" className="content page-content">
@@ -228,9 +200,7 @@ export default function Home() {
 
       <Dialog open={reportOpen} onOpenChange={setReportOpen}><DialogContent className="form-dialog"><DialogHeader><span className="dialog-icon"><MapPin /></span><DialogTitle>Report a trash spot</DialogTitle><DialogDescription>Add the location and a clear before photo. You can return after cleaning it.</DialogDescription></DialogHeader><form onSubmit={(event) => { event.preventDefault(); void submitReport(event.currentTarget); }}><Field label="Where is it?"><input name="location" required placeholder="e.g. Behind the science block" /></Field><Field label="Waste type"><Select name="wasteType" defaultValue="Mixed waste"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Mixed waste">Mixed waste</SelectItem><SelectItem value="Plastic">Plastic</SelectItem><SelectItem value="Paper">Paper</SelectItem><SelectItem value="Glass & metal">Glass & metal</SelectItem><SelectItem value="E-waste">E-waste</SelectItem></SelectContent></Select></Field><Field label="Before photo"><PhotoPicker stage="before" /></Field><Field label="Notes (optional)"><textarea name="notes" rows={3} placeholder="Add a landmark or useful detail" /></Field><DialogFooter><Button type="button" variant="outline" onClick={() => setReportOpen(false)}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? "Saving…" : "Submit report"}</Button></DialogFooter></form></DialogContent></Dialog>
 
-      <Dialog open={!!afterReport} onOpenChange={(open) => !open && setAfterReport(null)}><DialogContent className="form-dialog"><DialogHeader><span className="dialog-icon"><Camera /></span><DialogTitle>Add your after photo</DialogTitle><DialogDescription>Show the cleaned area clearly. This unlocks the collection-centre weigh-in.</DialogDescription></DialogHeader><form onSubmit={(event) => { event.preventDefault(); void submitAfterPhoto(event.currentTarget); }}><Field label="Cleanup location"><div className="readonly-field">{afterReport?.location}</div></Field><Field label="After photo"><PhotoPicker stage="after" /></Field><DialogFooter><Button type="button" variant="outline" onClick={() => setAfterReport(null)}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? "Uploading…" : "Save cleanup proof"}</Button></DialogFooter></form></DialogContent></Dialog>
-
-      <Dialog open={!!weighReport} onOpenChange={(open) => !open && setWeighReport(null)}><DialogContent className="form-dialog"><DialogHeader><span className="dialog-icon"><Scale /></span><DialogTitle>Collection-centre weigh-in</DialogTitle><DialogDescription>Enter the verified weight. ZeroTrash awards 30 credits for every kilogram.</DialogDescription></DialogHeader><Field label="Collection centre"><Select value={centre} onValueChange={setCentre}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Main Gate Green Point">Main Gate Green Point</SelectItem><SelectItem value="Hostel Block Collection Bay">Hostel Block Collection Bay</SelectItem><SelectItem value="Sports Complex Drop-off">Sports Complex Drop-off</SelectItem></SelectContent></Select></Field><Field label="Verified weight (kg)"><input type="number" min="0.1" max="100" step="0.1" value={weight} onChange={(event) => setWeight(event.target.value)} placeholder="0.0" /></Field>{Number(weight) > 0 && <div className="credit-preview"><Sparkles /><span>You’ll earn</span><strong>{Math.round(Number(weight) * 30)} credits</strong></div>}<DialogFooter><Button type="button" variant="outline" onClick={() => setWeighReport(null)}>Cancel</Button><Button onClick={() => void submitWeight()} disabled={busy}>{busy ? "Verifying…" : "Verify & award credits"}</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={!!afterReport} onOpenChange={(open) => !open && setAfterReport(null)}><DialogContent className="form-dialog"><DialogHeader><span className="dialog-icon"><Camera /></span><DialogTitle>Add your after photo</DialogTitle><DialogDescription>Show the cleaned area clearly. This sends the cleanup to the admin verification queue.</DialogDescription></DialogHeader><form onSubmit={(event) => { event.preventDefault(); void submitAfterPhoto(event.currentTarget); }}><Field label="Cleanup location"><div className="readonly-field">{afterReport?.location}</div></Field><Field label="After photo"><PhotoPicker stage="after" /></Field><DialogFooter><Button type="button" variant="outline" onClick={() => setAfterReport(null)}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? "Uploading…" : "Send for verification"}</Button></DialogFooter></form></DialogContent></Dialog>
 
       <Dialog open={!!redeemReward} onOpenChange={(open) => !open && setRedeemReward(null)}><DialogContent className="redeem-dialog"><DialogHeader><span className="dialog-icon"><Gift /></span><DialogTitle>Redeem {redeemReward?.detail}</DialogTitle><DialogDescription>{redeemReward?.value} credits will be exchanged for a ₹{redeemReward?.value} voucher from {redeemReward?.name}.</DialogDescription></DialogHeader><div className="redemption-math"><span>{state.balance} current credits</span><span>− {redeemReward?.value ?? 0} voucher</span><strong>{state.balance - (redeemReward?.value ?? 0)} credits left</strong></div><DialogFooter><Button type="button" variant="outline" onClick={() => setRedeemReward(null)}>Keep credits</Button><Button onClick={() => void confirmRedeem()} disabled={busy}>{busy ? "Redeeming…" : "Confirm redemption"}</Button></DialogFooter></DialogContent></Dialog>
       <Toaster position="top-right" richColors />
@@ -302,12 +272,12 @@ function PhotoPicker({ stage }: { stage: "before" | "after" }) {
   </div>;
 }
 
-function CleanupRow({ report, onAfter, onWeigh }: { report: Report; onAfter: (report: Report) => void; onWeigh: (report: Report) => void }) {
+function CleanupRow({ report, onAfter }: { report: Report; onAfter: (report: Report) => void }) {
   const status = statusCopy[report.status];
-  return <div className="cleanup-row"><div className={`cleanup-icon ${report.status === "verified" ? "done" : ""}`}>{report.status === "verified" ? <Recycle /> : <MapPin />}</div><div><strong>{report.location}</strong><span>{report.weight ? `${report.weight.toFixed(1)} kg · ` : ""}{new Intl.DateTimeFormat("en-IN", { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(report.createdAt))}</span></div><span className={`status ${status.className}`}>{status.label}</span>{report.status === "awaiting_cleanup" ? <button className="small-action" onClick={() => onAfter(report)}>Add after photo</button> : report.status === "awaiting_weighing" ? <button className="small-action" onClick={() => onWeigh(report)}>Record weight</button> : <strong className="credit-gain">+{report.credits}</strong>}</div>;
+  return <div className="cleanup-row"><div className={`cleanup-icon ${report.status === "verified" ? "done" : ""}`}>{report.status === "verified" ? <Recycle /> : <MapPin />}</div><div><strong>{report.location}</strong><span>{report.weight ? `${report.weight.toFixed(1)} kg · ` : ""}{new Intl.DateTimeFormat("en-IN", { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(report.createdAt))}</span></div><span className={`status ${status.className}`}>{status.label}</span>{report.status === "awaiting_cleanup" ? <button className="small-action" onClick={() => onAfter(report)}>Add after photo</button> : report.status === "awaiting_weighing" ? <span className="centre-wait compact"><Scale /> Centre check</span> : <strong className="credit-gain">+{report.credits}</strong>}</div>;
 }
 
-function ProcessPanel() { return <article className="panel process-panel"><span className="kicker">HOW IT WORKS</span><h2>Trash to reward</h2><ol className="steps"><li><span>01</span><div><strong>Spot it</strong><p>Upload a photo and location.</p></div></li><li><span>02</span><div><strong>Clean it</strong><p>Add an after photo as proof.</p></div></li><li><span>03</span><div><strong>Weigh it</strong><p>Visit a collection centre.</p></div></li><li><span>04</span><div><strong>Earn it</strong><p>Get credits. Pick a voucher.</p></div></li></ol></article>; }
+function ProcessPanel() { return <article className="panel process-panel"><span className="kicker">HOW IT WORKS</span><h2>Trash to reward</h2><ol className="steps"><li><span>01</span><div><strong>Spot it</strong><p>Upload a photo and location.</p></div></li><li><span>02</span><div><strong>Clean it</strong><p>Add an after photo as proof.</p></div></li><li><span>03</span><div><strong>Centre verifies</strong><p>An admin records the weight.</p></div></li><li><span>04</span><div><strong>Earn it</strong><p>Get credits. Pick a voucher.</p></div></li></ol></article>; }
 
 declare global {
   interface Document { modelContext?: { registerTool: (tool: { name: string; title?: string; description: string; inputSchema: object; annotations?: { readOnlyHint?: boolean; untrustedContentHint?: boolean }; execute: (input: unknown) => unknown | Promise<unknown> }, options?: { signal?: AbortSignal }) => void | Promise<void> } }

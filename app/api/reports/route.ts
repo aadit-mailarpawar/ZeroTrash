@@ -6,6 +6,7 @@ export async function POST(request: Request) {
   try {
     const user = await getLocalUser(request);
     if (!user) return Response.json({ error: "Sign in before reporting a spot" }, { status: 401 });
+    if (user.role !== "volunteer") return Response.json({ error: "Volunteer access required" }, { status: 403 });
     const form = await request.formData();
     const location = String(form.get("location") ?? "").trim();
     const wasteType = String(form.get("wasteType") ?? "").trim();

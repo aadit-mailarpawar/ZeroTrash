@@ -22,6 +22,20 @@
       "when": 1788979255628,
       "tag": "0002_small_shadow_king",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1789046520600,
+      "tag": "0003_brief_lionheart",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1789046932455,
+      "tag": "0004_motionless_dark_beast",
+      "breakpoints": true
     }
   ]
 }

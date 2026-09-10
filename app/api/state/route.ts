@@ -9,6 +9,7 @@ export async function GET(request: Request) {
   try {
     const user = await getLocalUser(request);
     if (!user) return Response.json({ error: "Sign in to view your impact" }, { status: 401 });
+    if (user.role !== "volunteer") return Response.json({ error: "Volunteer access required" }, { status: 403 });
     const email = user.email;
     const db = getDb();
     const [rows, totals, balance] = await Promise.all([

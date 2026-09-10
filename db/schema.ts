@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const reports = sqliteTable("reports", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -14,6 +14,8 @@ export const reports = sqliteTable("reports", {
   weight: real("weight"),
   credits: integer("credits").notNull().default(0),
   status: text("status").notNull().default("awaiting_cleanup"),
+  verifiedBy: text("verified_by"),
+  verifiedAt: text("verified_at"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
@@ -23,8 +25,11 @@ export const creditLedger = sqliteTable("credit_ledger", {
   kind: text("kind").notNull(),
   detail: text("detail").notNull(),
   volunteerEmail: text("volunteer_email").notNull().default(""),
+  reportId: integer("report_id").references(() => reports.id),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-});
+}, (table) => [
+  uniqueIndex("credit_ledger_cleanup_report_unique").on(table.reportId).where(sql`${table.kind} = 'cleanup' AND ${table.reportId} IS NOT NULL`),
+]);
 
 export const redemptions = sqliteTable("redemptions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -42,6 +47,7 @@ export const users = sqliteTable("users", {
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   salt: text("salt").notNull(),
+  role: text("role").notNull().default("volunteer"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 

@@ -3,7 +3,7 @@ import { getRawDb } from "@/db/bindings";
 const COOKIE_NAME = "zt_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 7;
 
-export type LocalUser = { id: number; name: string; email: string };
+export type LocalUser = { id: number; name: string; email: string; role: "volunteer" | "admin" };
 
 function bytesToBase64(bytes: Uint8Array) {
   let binary = "";
@@ -66,7 +66,11 @@ export async function getLocalUser(request: Request): Promise<LocalUser | null> 
   const token = readCookie(request);
   if (!token) return null;
   const tokenHash = await sha256(token);
-  return getRawDb().prepare("SELECT users.id, users.name, users.email FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?").bind(tokenHash, Math.floor(Date.now() / 1000)).first<LocalUser>();
+  return getRawDb().prepare("SELECT users.id, users.name, users.email, users.role FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?").bind(tokenHash, Math.floor(Date.now() / 1000)).first<LocalUser>();
+}
+
+export function isAdminUser(user: LocalUser | null): user is LocalUser & { role: "admin" } {
+  return user?.role === "admin";
 }
 
 export async function endSession(request: Request) {

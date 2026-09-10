@@ -11,6 +11,7 @@ export async function POST(request: Request) {
   try {
     const user = await getLocalUser(request);
     if (!user) return Response.json({ error: "Sign in before redeeming a voucher" }, { status: 401 });
+    if (user.role !== "volunteer") return Response.json({ error: "Volunteer access required" }, { status: 403 });
     const email = user.email;
     const { rewardId } = await request.json() as { rewardId?: string };
     const reward = rewards[rewardId as keyof typeof rewards];

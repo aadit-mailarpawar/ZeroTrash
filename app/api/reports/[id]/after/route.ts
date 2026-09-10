@@ -6,6 +6,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   try {
     const user = await getLocalUser(request);
     if (!user) return Response.json({ error: "Sign in before adding cleanup proof" }, { status: 401 });
+    if (user.role !== "volunteer") return Response.json({ error: "Volunteer access required" }, { status: 403 });
     const id = Number((await params).id);
     if (!Number.isInteger(id)) return Response.json({ error: "Invalid report" }, { status: 400 });
     const form = await request.formData();
