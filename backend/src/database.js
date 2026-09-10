@@ -70,7 +70,10 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_reports_volunteer ON reports(volunteer_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
+  DROP INDEX IF EXISTS idx_redemptions_user;
+  CREATE INDEX IF NOT EXISTS idx_redemptions_user_created_id ON redemptions(user_id, created_at DESC, id DESC);
 `);
+db.exec("PRAGMA optimize;");
 
 function seedUser(name, email, password, role) {
   const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(email);

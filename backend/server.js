@@ -94,7 +94,16 @@ app.get("/api/state", authenticate, requireRole("volunteer"), (request, response
   const reports = db.prepare(`${reportSelect} WHERE r.volunteer_id = ? ORDER BY r.created_at DESC, r.id DESC LIMIT 40`).all(request.user.id);
   const totals = db.prepare("SELECT coalesce(sum(weight), 0) AS totalWeight, count(CASE WHEN status = 'verified' THEN 1 END) AS verifiedCount FROM reports WHERE volunteer_id = ?").get(request.user.id);
   const balance = db.prepare("SELECT credits FROM users WHERE id = ?").get(request.user.id).credits;
-  response.json({ reports, balance: Number(balance), totalWeight: Number(totals.totalWeight), verifiedCount: Number(totals.verifiedCount) });
+  const redemptions = db.prepare(`
+    SELECT rd.id, rd.reward_id AS rewardId, rw.name, rw.description,
+      rd.credits AS value, rd.code, rd.created_at AS redeemedAt
+    FROM redemptions rd
+    JOIN rewards rw ON rw.id = rd.reward_id
+    WHERE rd.user_id = ?
+    ORDER BY rd.created_at DESC, rd.id DESC
+    LIMIT 50
+  `).all(request.user.id);
+  response.json({ reports, redemptions, balance: Number(balance), totalWeight: Number(totals.totalWeight), verifiedCount: Number(totals.verifiedCount) });
 });
 
 app.post("/api/reports", authenticate, requireRole("volunteer"), upload.single("photo"), (request, response) => {

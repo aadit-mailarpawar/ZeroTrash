@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
-  Bell, Camera, Check, CircleDollarSign, Gift, LayoutDashboard, LogOut,
+  Bell, CalendarDays, Camera, Check, CircleDollarSign, Copy, Gift, LayoutDashboard, LogOut,
   MapPin, Plus, Recycle, Scale, Sparkles, Store, Ticket, Upload,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -18,7 +18,8 @@ type Report = {
   status: "awaiting_cleanup" | "awaiting_weighing" | "verified"; createdAt: string;
 };
 
-type AppState = { reports: Report[]; balance: number; totalWeight: number; verifiedCount: number };
+type Redemption = { id: number; rewardId: string; name: string; description: string; value: number; code: string; redeemedAt: string };
+type AppState = { reports: Report[]; redemptions: Redemption[]; balance: number; totalWeight: number; verifiedCount: number };
 type UserProfile = { name: string; email: string; role: "volunteer" | "admin" };
 
 const rewards = [
@@ -53,7 +54,7 @@ export default function Home() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [tab, setTab] = useState("dashboard");
-  const [state, setState] = useState<AppState>({ reports: [], balance: 0, totalWeight: 0, verifiedCount: 0 });
+  const [state, setState] = useState<AppState>({ reports: [], redemptions: [], balance: 0, totalWeight: 0, verifiedCount: 0 });
   const [reportOpen, setReportOpen] = useState(false);
   const [afterReport, setAfterReport] = useState<Report | null>(null);
   const [redeemReward, setRedeemReward] = useState<(typeof rewards)[number] | null>(null);
@@ -138,6 +139,15 @@ export default function Home() {
     finally { setBusy(false); }
   };
 
+  const copyVoucherCode = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code);
+      toast.success("Voucher code copied");
+    } catch {
+      toast.error("Could not copy the code. Select it manually instead.");
+    }
+  };
+
   useEffect(() => {
     if (!user) return;
     const context = document.modelContext;
@@ -168,13 +178,14 @@ export default function Home() {
           <TabsTrigger value="dashboard"><LayoutDashboard /> Dashboard</TabsTrigger>
           <TabsTrigger value="cleanups"><Recycle /> My cleanups <span className="nav-count">{pendingCount}</span></TabsTrigger>
           <TabsTrigger value="rewards"><Gift /> Rewards</TabsTrigger>
+          <TabsTrigger value="vouchers"><Ticket /> My vouchers {state.redemptions.length > 0 && <span className="nav-count">{state.redemptions.length}</span>}</TabsTrigger>
         </TabsList>
         <div className="sidebar-foot"><p className="eyebrow">COMMUNITY GOAL</p><div className="goal-row"><strong>742 kg</strong><span>of 1,000 kg</span></div><div className="goal-track"><span /></div><p>258 kg to a cleaner campus</p></div>
       </aside>
 
       <section className="workspace">
         <header className="topbar"><div className="mobile-brand"><Recycle /> zerotrash</div><div className="top-actions"><button className="icon-button" aria-label="Notifications"><Bell /></button><div className="avatar">{initials}</div><div className="profile"><strong>{user.name}</strong><span>{user.email}</span></div><button className="icon-button logout-button" aria-label="Log out" title="Log out" onClick={() => void logOut()}><LogOut /></button></div></header>
-        <TabsList className="mobile-tabs" aria-label="Primary navigation"><TabsTrigger value="dashboard">Home</TabsTrigger><TabsTrigger value="cleanups">Cleanups</TabsTrigger><TabsTrigger value="rewards">Rewards</TabsTrigger></TabsList>
+        <TabsList className="mobile-tabs" aria-label="Primary navigation"><TabsTrigger value="dashboard">Home</TabsTrigger><TabsTrigger value="cleanups">Cleanups</TabsTrigger><TabsTrigger value="rewards">Rewards</TabsTrigger><TabsTrigger value="vouchers">Vouchers</TabsTrigger></TabsList>
 
         <TabsContent value="dashboard" className="content">
           <section className="welcome"><div><p className="eyebrow green">YOUR CAMPUS IMPACT</p><h1>Good {greeting}, {firstName}.</h1><p>{pendingCount ? `${pendingCount} cleanup${pendingCount === 1 ? "" : "s"} need your next step.` : "Your campus is looking cleaner already."} Ready to make a difference?</p></div><Button className="report-button" size="lg" onClick={() => setReportOpen(true)}><Plus /> Report trash</Button></section>
@@ -195,6 +206,11 @@ export default function Home() {
           <section className="page-title rewards-title"><div><p className="eyebrow green">1 CREDIT = ₹1</p><h1>Rewards that give back</h1><p>Exchange your verified impact for vouchers of the same value.</p></div><div className="balance-pill"><Sparkles /><span><small>YOUR BALANCE</small><strong>{state.balance} credits</strong></span></div></section>
           <div className="reward-grid">{rewards.map((reward) => { const Icon = reward.icon; const available = state.balance >= reward.value; return <article className="reward-card" key={reward.id}><div className="reward-top"><div className="reward-icon"><Icon /></div><span>{reward.value} CR</span></div><div><p>{reward.name}</p><h2>{reward.detail}</h2></div><Button disabled={!available} variant={available ? "default" : "secondary"} onClick={() => setRedeemReward(reward)}>{available ? "Redeem voucher" : `Need ${reward.value - state.balance} more`}</Button></article>; })}</div>
           <div className="reward-note"><Recycle /><div><strong>Every reward has a footprint.</strong><p>Credits are issued only after a collection centre verifies the weight. That keeps the system fair and the impact real.</p></div></div>
+        </TabsContent>
+
+        <TabsContent value="vouchers" className="content page-content">
+          <section className="page-title vouchers-title"><div><p className="eyebrow green">REDEMPTION WALLET</p><h1>My vouchers</h1><p>Find every voucher you have unlocked and copy its code when you are ready to use it.</p></div><div className="voucher-count"><Ticket /><span><small>REDEEMED</small><strong>{state.redemptions.length} voucher{state.redemptions.length === 1 ? "" : "s"}</strong></span></div></section>
+          {state.redemptions.length ? <div className="redeemed-grid">{state.redemptions.map((redemption) => <article className="redeemed-card" key={redemption.id}><div className="redeemed-card-top"><span className="redeemed-brand"><Ticket /></span><span className="redeemed-status"><Check /> Ready to use</span></div><div className="redeemed-copy"><small>{redemption.name}</small><h2>{redemption.description}</h2><p><CalendarDays /> Redeemed {formatDashboardDate(redemption.redeemedAt)}</p></div><div className="voucher-code-row"><div><small>VOUCHER CODE</small><strong>{redemption.code}</strong></div><button type="button" onClick={() => void copyVoucherCode(redemption.code)} aria-label={`Copy voucher code ${redemption.code}`}><Copy /> Copy</button></div><footer><span>{redemption.value} credits</span><span>Keep this code private</span></footer></article>)}</div> : <div className="voucher-empty"><span><Ticket /></span><h2>No redeemed vouchers yet</h2><p>Redeem a reward with your verified cleanup credits and it will appear here automatically.</p><Button onClick={() => setTab("rewards")}><Gift /> Browse rewards</Button></div>}
         </TabsContent>
       </section>
 
@@ -278,6 +294,10 @@ function CleanupRow({ report, onAfter }: { report: Report; onAfter: (report: Rep
 }
 
 function ProcessPanel() { return <article className="panel process-panel"><span className="kicker">HOW IT WORKS</span><h2>Trash to reward</h2><ol className="steps"><li><span>01</span><div><strong>Spot it</strong><p>Upload a photo and location.</p></div></li><li><span>02</span><div><strong>Clean it</strong><p>Add an after photo as proof.</p></div></li><li><span>03</span><div><strong>Centre verifies</strong><p>An admin records the weight.</p></div></li><li><span>04</span><div><strong>Earn it</strong><p>Get credits. Pick a voucher.</p></div></li></ol></article>; }
+
+function formatDashboardDate(value: string) {
+  return new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric" }).format(new Date(value.endsWith("Z") ? value : `${value.replace(" ", "T")}Z`));
+}
 
 declare global {
   interface Document { modelContext?: { registerTool: (tool: { name: string; title?: string; description: string; inputSchema: object; annotations?: { readOnlyHint?: boolean; untrustedContentHint?: boolean }; execute: (input: unknown) => unknown | Promise<unknown> }, options?: { signal?: AbortSignal }) => void | Promise<void> } }
