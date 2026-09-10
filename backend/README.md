@@ -2,7 +2,7 @@
 
 Local REST API created specifically for the ZeroTrash college cleanup prototype.
 
-Admins publish campus cleanup locations. A volunteer claims a spot with a geotagged before photo, submits a geotagged after photo, and receives credits after collection-centre verification.
+Admins publish campus cleanup locations. A volunteer claims a spot with a before photo, submits an after photo, and receives credits after collection-centre verification. GPS coordinates are optional locally and can be required later with `REQUIRE_PHOTO_LOCATION=true`.
 
 ## Run
 

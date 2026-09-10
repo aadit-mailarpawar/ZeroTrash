@@ -13,6 +13,7 @@ const uploadDirectory = path.join(root, "uploads");
 fs.mkdirSync(uploadDirectory, { recursive: true });
 
 const port = Number(process.env.PORT || 5050);
+const requirePhotoLocation = process.env.REQUIRE_PHOTO_LOCATION === "true";
 const app = express();
 app.disable("x-powered-by");
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN || "http://localhost:5173", credentials: true }));
@@ -36,6 +37,15 @@ function removeUpload(file) {
 
 function validCoordinates(latitude, longitude) {
   return Number.isFinite(latitude) && latitude >= -90 && latitude <= 90 && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
+}
+
+function readOptionalCoordinates(body) {
+  const hasLatitude = body?.latitude !== undefined && body.latitude !== "";
+  const hasLongitude = body?.longitude !== undefined && body.longitude !== "";
+  if (!hasLatitude && !hasLongitude) return { latitude: null, longitude: null, valid: !requirePhotoLocation };
+  const latitude = Number(body.latitude);
+  const longitude = Number(body.longitude);
+  return { latitude, longitude, valid: validCoordinates(latitude, longitude) };
 }
 
 function createSession(userId) {
@@ -121,9 +131,8 @@ app.post("/api/admin/spots", authenticate, requireRole("admin"), (request, respo
 });
 
 app.post("/api/spots/:id/start", authenticate, requireRole("volunteer"), upload.single("photo"), (request, response) => {
-  const latitude = Number(request.body?.latitude);
-  const longitude = Number(request.body?.longitude);
-  if (!request.file || !validCoordinates(latitude, longitude)) {
+  const { latitude, longitude, valid } = readOptionalCoordinates(request.body);
+  if (!request.file || !valid) {
     removeUpload(request.file);
     return response.status(400).json({ error: !request.file ? "A before photo is required" : "A valid photo location is required" });
   }
@@ -140,14 +149,13 @@ app.post("/api/spots/:id/start", authenticate, requireRole("volunteer"), upload.
 });
 
 app.post("/api/reports/:id/after", authenticate, requireRole("volunteer"), upload.single("photo"), (request, response) => {
-  const latitude = Number(request.body?.latitude);
-  const longitude = Number(request.body?.longitude);
+  const { latitude, longitude, valid } = readOptionalCoordinates(request.body);
   const report = db.prepare("SELECT id, status FROM cleanup_spots WHERE id = ? AND volunteer_id = ?").get(request.params.id, request.user.id);
-  if (!report || report.status !== "awaiting_after" || !request.file || !validCoordinates(latitude, longitude)) {
+  if (!report || report.status !== "awaiting_after" || !request.file || !valid) {
     removeUpload(request.file);
     if (!report) return response.status(404).json({ error: "Report not found" });
     if (!request.file) return response.status(400).json({ error: "An after photo is required" });
-    if (!validCoordinates(latitude, longitude)) return response.status(400).json({ error: "A valid photo location is required" });
+    if (!valid) return response.status(400).json({ error: "A valid photo location is required" });
     return response.status(409).json({ error: "This spot is not awaiting an after photo" });
   }
   db.prepare(`

@@ -36,6 +36,7 @@ const statusCopy = {
 
 const acceptedPhotoTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 const maxPhotoBytes = 5 * 1024 * 1024;
+const photoLocationEnabled = import.meta.env.VITE_PHOTO_LOCATION_ENABLED === "true";
 
 function getCurrentCoordinates() {
   return new Promise<{ latitude: number; longitude: number }>((resolve, reject) => {
@@ -113,14 +114,16 @@ export default function Home() {
     if (!startSpot) return;
     setBusy(true);
     try {
-      const coordinates = await getCurrentCoordinates();
       const formData = new FormData(form);
-      formData.set("latitude", String(coordinates.latitude));
-      formData.set("longitude", String(coordinates.longitude));
+      if (photoLocationEnabled) {
+        const coordinates = await getCurrentCoordinates();
+        formData.set("latitude", String(coordinates.latitude));
+        formData.set("longitude", String(coordinates.longitude));
+      }
       const response = await fetch(`/api/spots/${startSpot.id}/start`, { method: "POST", body: formData });
       const result = await readApiResult(response);
       if (!response.ok) throw new Error(result.error || "Could not start this cleanup");
-      await loadState(); setStartSpot(null); form.reset(); setTab("cleanups"); toast.success("Before photo and location saved. This spot is now assigned to you.");
+      await loadState(); setStartSpot(null); form.reset(); setTab("cleanups"); toast.success("Before photo saved. This spot is now assigned to you.");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not start this cleanup"); }
     finally { setBusy(false); }
   };
@@ -129,10 +132,12 @@ export default function Home() {
     if (!afterReport) return;
     setBusy(true);
     try {
-      const coordinates = await getCurrentCoordinates();
       const formData = new FormData(form);
-      formData.set("latitude", String(coordinates.latitude));
-      formData.set("longitude", String(coordinates.longitude));
+      if (photoLocationEnabled) {
+        const coordinates = await getCurrentCoordinates();
+        formData.set("latitude", String(coordinates.latitude));
+        formData.set("longitude", String(coordinates.longitude));
+      }
       const response = await fetch(`/api/reports/${afterReport.id}/after`, { method: "POST", body: formData });
       const result = await readApiResult(response);
       if (!response.ok) throw new Error(result.error || "Could not save the photo");
@@ -224,7 +229,7 @@ export default function Home() {
         </TabsContent>
 
         <TabsContent value="cleanups" className="content page-content">
-          <section className="page-title"><div><p className="eyebrow green">PROOF TO PROGRESS</p><h1>My cleanups</h1><p>Your claimed spots move from geotagged before proof to after proof and verification.</p></div><Button className="report-button" onClick={() => setTab("spots")}><MapPin /> Find another spot</Button></section>
+          <section className="page-title"><div><p className="eyebrow green">PROOF TO PROGRESS</p><h1>My cleanups</h1><p>Your claimed spots move from before proof to after proof and verification.</p></div><Button className="report-button" onClick={() => setTab("spots")}><MapPin /> Find another spot</Button></section>
           <div className="report-list">{state.reports.length ? state.reports.map((report) => <article className="report-card" key={report.id}><div className="report-thumb">{report.beforeKey ? <img src={`/api/images/${encodeURIComponent(report.beforeKey)}`} alt="Trash before cleanup" /> : <Camera />}</div><div className="report-main"><div className="report-title-row"><div><span className="status-step">SPOT #{String(report.id).padStart(3, "0")}</span><h2>{report.location}</h2></div><span className={`status ${statusCopy[report.status].className}`}>{statusCopy[report.status].label}</span></div><div className="report-meta"><span><Recycle /> {report.wasteType}</span><span><MapPin /> Before location saved</span>{report.weight ? <span><Scale /> {report.weight.toFixed(1)} kg</span> : null}</div><div className="journey"><span className="done"><i><Check /></i>Before proof</span><b /><span className={report.status !== "awaiting_after" ? "done" : ""}><i>{report.status !== "awaiting_after" ? <Check /> : "2"}</i>After proof</span><b /><span className={report.status === "verified" ? "done" : ""}><i>{report.status === "verified" ? <Check /> : "3"}</i>Verified</span></div><div className="report-actions">{report.status === "awaiting_after" && <Button onClick={() => setAfterReport(report)}><Camera /> Add after photo</Button>}{report.status === "awaiting_weighing" && <span className="centre-wait"><Scale /> Take the waste to a collection centre for verification</span>}{report.status === "verified" && <span className="earned"><CircleDollarSign /> +{report.credits} credits earned</span>}</div></div></article>) : <div className="empty-page"><span><Recycle /></span><h2>Your cleanup journey starts with a listed spot.</h2><p>Choose an admin-listed location and upload the before photo when you arrive.</p><Button onClick={() => setTab("spots")}><MapPin /> Browse available spots</Button></div>}</div>
         </TabsContent>
 
@@ -240,9 +245,9 @@ export default function Home() {
         </TabsContent>
       </section>
 
-      <Dialog open={!!startSpot} onOpenChange={(open) => !open && setStartSpot(null)}><DialogContent className="form-dialog"><DialogHeader><span className="dialog-icon"><Navigation /></span><DialogTitle>Start cleanup at {startSpot?.location}</DialogTitle><DialogDescription>Upload the trash before cleanup. Your current device location will be attached when you submit.</DialogDescription></DialogHeader><form onSubmit={(event) => { event.preventDefault(); void submitBeforePhoto(event.currentTarget); }}><Field label="Admin-listed location"><div className="readonly-field">{startSpot?.location}</div></Field>{startSpot?.notes && <div className="spot-instructions"><small>ADMIN INSTRUCTIONS</small><p>{startSpot.notes}</p></div>}<Field label="Before photo"><PhotoPicker stage="before" /></Field><div className="geotag-note"><Navigation /><span><strong>Location is required</strong><small>Your coordinates are saved only with this cleanup proof.</small></span></div><DialogFooter><Button type="button" variant="outline" onClick={() => setStartSpot(null)}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? "Getting location…" : "Claim spot & upload"}</Button></DialogFooter></form></DialogContent></Dialog>
+      <Dialog open={!!startSpot} onOpenChange={(open) => !open && setStartSpot(null)}><DialogContent className="form-dialog"><DialogHeader><span className="dialog-icon"><Navigation /></span><DialogTitle>Start cleanup at {startSpot?.location}</DialogTitle><DialogDescription>Upload a clear photo of the trash before cleanup.</DialogDescription></DialogHeader><form onSubmit={(event) => { event.preventDefault(); void submitBeforePhoto(event.currentTarget); }}><Field label="Admin-listed location"><div className="readonly-field">{startSpot?.location}</div></Field>{startSpot?.notes && <div className="spot-instructions"><small>ADMIN INSTRUCTIONS</small><p>{startSpot.notes}</p></div>}<Field label="Before photo"><PhotoPicker stage="before" /></Field><div className="geotag-note"><Navigation /><span><strong>{photoLocationEnabled ? "Location is required" : "Location check temporarily off"}</strong><small>{photoLocationEnabled ? "Your coordinates are saved only with this cleanup proof." : "The admin-listed spot is used while ZeroTrash runs locally."}</small></span></div><DialogFooter><Button type="button" variant="outline" onClick={() => setStartSpot(null)}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? "Uploading…" : "Claim spot & upload"}</Button></DialogFooter></form></DialogContent></Dialog>
 
-      <Dialog open={!!afterReport} onOpenChange={(open) => !open && setAfterReport(null)}><DialogContent className="form-dialog"><DialogHeader><span className="dialog-icon"><Camera /></span><DialogTitle>Add your after photo</DialogTitle><DialogDescription>Show the cleaned area clearly. Your current location will be attached before this enters the admin queue.</DialogDescription></DialogHeader><form onSubmit={(event) => { event.preventDefault(); void submitAfterPhoto(event.currentTarget); }}><Field label="Cleanup location"><div className="readonly-field">{afterReport?.location}</div></Field><Field label="After photo"><PhotoPicker stage="after" /></Field><div className="geotag-note"><Navigation /><span><strong>Location will be captured</strong><small>This confirms the after photo was taken at the cleanup spot.</small></span></div><DialogFooter><Button type="button" variant="outline" onClick={() => setAfterReport(null)}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? "Getting location…" : "Send for verification"}</Button></DialogFooter></form></DialogContent></Dialog>
+      <Dialog open={!!afterReport} onOpenChange={(open) => !open && setAfterReport(null)}><DialogContent className="form-dialog"><DialogHeader><span className="dialog-icon"><Camera /></span><DialogTitle>Add your after photo</DialogTitle><DialogDescription>Show the cleaned area clearly before sending it to the admin queue.</DialogDescription></DialogHeader><form onSubmit={(event) => { event.preventDefault(); void submitAfterPhoto(event.currentTarget); }}><Field label="Cleanup location"><div className="readonly-field">{afterReport?.location}</div></Field><Field label="After photo"><PhotoPicker stage="after" /></Field><div className="geotag-note"><Navigation /><span><strong>{photoLocationEnabled ? "Location will be captured" : "Location check temporarily off"}</strong><small>{photoLocationEnabled ? "This confirms the after photo was taken at the cleanup spot." : "You can upload this proof without granting browser location access."}</small></span></div><DialogFooter><Button type="button" variant="outline" onClick={() => setAfterReport(null)}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? "Uploading…" : "Send for verification"}</Button></DialogFooter></form></DialogContent></Dialog>
 
       <Dialog open={!!redeemReward} onOpenChange={(open) => !open && setRedeemReward(null)}><DialogContent className="redeem-dialog"><DialogHeader><span className="dialog-icon"><Gift /></span><DialogTitle>Redeem {redeemReward?.detail}</DialogTitle><DialogDescription>{redeemReward?.value} credits will be exchanged for a ₹{redeemReward?.value} voucher from {redeemReward?.name}.</DialogDescription></DialogHeader><div className="redemption-math"><span>{state.balance} current credits</span><span>− {redeemReward?.value ?? 0} voucher</span><strong>{state.balance - (redeemReward?.value ?? 0)} credits left</strong></div><DialogFooter><Button type="button" variant="outline" onClick={() => setRedeemReward(null)}>Keep credits</Button><Button onClick={() => void confirmRedeem()} disabled={busy}>{busy ? "Redeeming…" : "Confirm redemption"}</Button></DialogFooter></DialogContent></Dialog>
       <Toaster position="top-right" richColors />
@@ -319,7 +324,7 @@ function CleanupRow({ report, onAfter }: { report: Report; onAfter: (report: Rep
   return <div className="cleanup-row"><div className={`cleanup-icon ${report.status === "verified" ? "done" : ""}`}>{report.status === "verified" ? <Recycle /> : <MapPin />}</div><div><strong>{report.location}</strong><span>{report.weight ? `${report.weight.toFixed(1)} kg · ` : ""}{new Intl.DateTimeFormat("en-IN", { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(report.createdAt))}</span></div><span className={`status ${status.className}`}>{status.label}</span>{report.status === "awaiting_after" ? <button className="small-action" onClick={() => onAfter(report)}>Add after photo</button> : report.status === "awaiting_weighing" ? <span className="centre-wait compact"><Scale /> Centre check</span> : <strong className="credit-gain">+{report.credits}</strong>}</div>;
 }
 
-function ProcessPanel() { return <article className="panel process-panel"><span className="kicker">HOW IT WORKS</span><h2>Listed spot to reward</h2><ol className="steps"><li><span>01</span><div><strong>Choose a spot</strong><p>Pick a location listed by the admin.</p></div></li><li><span>02</span><div><strong>Upload before</strong><p>Claim it with a geotagged photo.</p></div></li><li><span>03</span><div><strong>Clean and prove</strong><p>Add a geotagged after photo.</p></div></li><li><span>04</span><div><strong>Get verified</strong><p>Centre weight unlocks your credits.</p></div></li></ol></article>; }
+function ProcessPanel() { return <article className="panel process-panel"><span className="kicker">HOW IT WORKS</span><h2>Listed spot to reward</h2><ol className="steps"><li><span>01</span><div><strong>Choose a spot</strong><p>Pick a location listed by the admin.</p></div></li><li><span>02</span><div><strong>Upload before</strong><p>Claim it with a clear before photo.</p></div></li><li><span>03</span><div><strong>Clean and prove</strong><p>Add a clear after photo.</p></div></li><li><span>04</span><div><strong>Get verified</strong><p>Centre weight unlocks your credits.</p></div></li></ol></article>; }
 
 function formatDashboardDate(value: string) {
   return new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric" }).format(new Date(value.endsWith("Z") ? value : `${value.replace(" ", "T")}Z`));
