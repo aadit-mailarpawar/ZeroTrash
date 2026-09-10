@@ -67,9 +67,42 @@ db.exec(`
     code TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+  CREATE TABLE IF NOT EXISTS cleanup_spots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_by INTEGER NOT NULL REFERENCES users(id),
+    volunteer_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    location TEXT NOT NULL,
+    waste_type TEXT NOT NULL,
+    notes TEXT NOT NULL DEFAULT '',
+    before_image TEXT,
+    before_lat REAL,
+    before_lng REAL,
+    before_uploaded_at TEXT,
+    after_image TEXT,
+    after_lat REAL,
+    after_lng REAL,
+    after_uploaded_at TEXT,
+    center TEXT,
+    weight REAL,
+    credits INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL CHECK (status IN ('open', 'awaiting_after', 'awaiting_weighing', 'verified')) DEFAULT 'open',
+    verified_by INTEGER REFERENCES users(id),
+    verified_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS spot_credit_ledger (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    spot_id INTEGER NOT NULL UNIQUE REFERENCES cleanup_spots(id) ON DELETE CASCADE,
+    amount INTEGER NOT NULL,
+    detail TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
   CREATE INDEX IF NOT EXISTS idx_reports_volunteer ON reports(volunteer_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
+  CREATE INDEX IF NOT EXISTS idx_cleanup_spots_status_created ON cleanup_spots(status, created_at DESC, id DESC);
+  CREATE INDEX IF NOT EXISTS idx_cleanup_spots_volunteer_created ON cleanup_spots(volunteer_id, created_at DESC, id DESC);
   DROP INDEX IF EXISTS idx_redemptions_user;
   CREATE INDEX IF NOT EXISTS idx_redemptions_user_created_id ON redemptions(user_id, created_at DESC, id DESC);
 `);
@@ -94,14 +127,18 @@ export function userView(row) {
   return { id: row.id, name: row.name, email: row.email, role: row.role, pointsBalance: Number(row.credits) };
 }
 
-export const reportSelect = `
-  SELECT r.id, u.name AS volunteer, u.email AS volunteerEmail,
-    r.location, r.waste_type AS wasteType, r.notes,
-    r.before_image AS beforeKey, r.after_image AS afterKey,
-    r.center, r.weight, r.credits, r.status,
-    verifier.email AS verifiedBy, r.verified_at AS verifiedAt,
-    r.created_at AS createdAt
-  FROM reports r
-  JOIN users u ON u.id = r.volunteer_id
-  LEFT JOIN users verifier ON verifier.id = r.verified_by
+export const spotSelect = `
+  SELECT s.id, coalesce(u.name, 'Unclaimed') AS volunteer,
+    coalesce(u.email, '') AS volunteerEmail,
+    s.location, s.waste_type AS wasteType, s.notes,
+    s.before_image AS beforeKey, s.after_image AS afterKey,
+    s.before_lat AS beforeLat, s.before_lng AS beforeLng,
+    s.after_lat AS afterLat, s.after_lng AS afterLng,
+    s.center, s.weight, s.credits, s.status,
+    creator.email AS createdBy, verifier.email AS verifiedBy,
+    s.verified_at AS verifiedAt, s.created_at AS createdAt
+  FROM cleanup_spots s
+  LEFT JOIN users u ON u.id = s.volunteer_id
+  JOIN users creator ON creator.id = s.created_by
+  LEFT JOIN users verifier ON verifier.id = s.verified_by
 `;

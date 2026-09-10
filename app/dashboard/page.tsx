@@ -3,23 +3,22 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Bell, CalendarDays, Camera, Check, CircleDollarSign, Copy, Gift, LayoutDashboard, LogOut,
-  MapPin, Plus, Recycle, Scale, Sparkles, Store, Ticket, Upload,
+  MapPin, Navigation, Recycle, Scale, Sparkles, Store, Ticket, Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Toaster } from "@/components/ui/sonner";
 
 type Report = {
-  id: number; location: string; wasteType: string; notes: string; beforeKey: string;
+  id: number; location: string; wasteType: string; notes: string; beforeKey: string | null;
   afterKey: string | null; center: string | null; weight: number | null; credits: number;
-  status: "awaiting_cleanup" | "awaiting_weighing" | "verified"; createdAt: string;
+  status: "open" | "awaiting_after" | "awaiting_weighing" | "verified"; createdAt: string;
 };
 
 type Redemption = { id: number; rewardId: string; name: string; description: string; value: number; code: string; redeemedAt: string };
-type AppState = { reports: Report[]; redemptions: Redemption[]; balance: number; totalWeight: number; verifiedCount: number };
+type AppState = { reports: Report[]; availableSpots: Report[]; redemptions: Redemption[]; balance: number; totalWeight: number; verifiedCount: number };
 type UserProfile = { name: string; email: string; role: "volunteer" | "admin" };
 
 const rewards = [
@@ -29,13 +28,25 @@ const rewards = [
 ];
 
 const statusCopy = {
-  awaiting_cleanup: { label: "Awaiting cleanup", className: "waiting" },
+  open: { label: "Open spot", className: "open" },
+  awaiting_after: { label: "Add after photo", className: "waiting" },
   awaiting_weighing: { label: "Pending admin verification", className: "weighing" },
   verified: { label: "Verified", className: "verified" },
 };
 
 const acceptedPhotoTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 const maxPhotoBytes = 5 * 1024 * 1024;
+
+function getCurrentCoordinates() {
+  return new Promise<{ latitude: number; longitude: number }>((resolve, reject) => {
+    if (!navigator.geolocation) { reject(new Error("Location services are not available on this device.")); return; }
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => resolve({ latitude: coords.latitude, longitude: coords.longitude }),
+      () => reject(new Error("Allow location access so the photo can be geotagged.")),
+      { enableHighAccuracy: true, timeout: 12_000, maximumAge: 30_000 },
+    );
+  });
+}
 
 async function readApiResult<T extends object>(response: Response): Promise<T & { error?: string }> {
   const body = await response.text();
@@ -54,8 +65,8 @@ export default function Home() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [tab, setTab] = useState("dashboard");
-  const [state, setState] = useState<AppState>({ reports: [], redemptions: [], balance: 0, totalWeight: 0, verifiedCount: 0 });
-  const [reportOpen, setReportOpen] = useState(false);
+  const [state, setState] = useState<AppState>({ reports: [], availableSpots: [], redemptions: [], balance: 0, totalWeight: 0, verifiedCount: 0 });
+  const [startSpot, setStartSpot] = useState<Report | null>(null);
   const [afterReport, setAfterReport] = useState<Report | null>(null);
   const [redeemReward, setRedeemReward] = useState<(typeof rewards)[number] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -98,14 +109,19 @@ export default function Home() {
     window.location.assign("/signin");
   };
 
-  const submitReport = async (form: HTMLFormElement) => {
+  const submitBeforePhoto = async (form: HTMLFormElement) => {
+    if (!startSpot) return;
     setBusy(true);
     try {
-      const response = await fetch("/api/reports", { method: "POST", body: new FormData(form) });
+      const coordinates = await getCurrentCoordinates();
+      const formData = new FormData(form);
+      formData.set("latitude", String(coordinates.latitude));
+      formData.set("longitude", String(coordinates.longitude));
+      const response = await fetch(`/api/spots/${startSpot.id}/start`, { method: "POST", body: formData });
       const result = await readApiResult(response);
-      if (!response.ok) throw new Error(result.error || "Could not save the report");
-      await loadState(); setReportOpen(false); form.reset(); toast.success("Trash spot reported. Let’s clean it up!");
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save the report"); }
+      if (!response.ok) throw new Error(result.error || "Could not start this cleanup");
+      await loadState(); setStartSpot(null); form.reset(); setTab("cleanups"); toast.success("Before photo and location saved. This spot is now assigned to you.");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not start this cleanup"); }
     finally { setBusy(false); }
   };
 
@@ -113,7 +129,11 @@ export default function Home() {
     if (!afterReport) return;
     setBusy(true);
     try {
-      const response = await fetch(`/api/reports/${afterReport.id}/after`, { method: "POST", body: new FormData(form) });
+      const coordinates = await getCurrentCoordinates();
+      const formData = new FormData(form);
+      formData.set("latitude", String(coordinates.latitude));
+      formData.set("longitude", String(coordinates.longitude));
+      const response = await fetch(`/api/reports/${afterReport.id}/after`, { method: "POST", body: formData });
       const result = await readApiResult(response);
       if (!response.ok) throw new Error(result.error || "Could not save the photo");
       await loadState(); setAfterReport(null); toast.success("Cleanup proof added. Take it to a collection centre for admin verification.");
@@ -154,9 +174,9 @@ export default function Home() {
     if (!context?.registerTool) return;
     const lifecycle = new AbortController();
     const reportTool = context.registerTool({
-      name: "start_trash_report", title: "Start trash report", description: "Open the ZeroTrash report form so a volunteer can add a required before photo and location.",
+      name: "find_cleanup_spot", title: "Find cleanup spot", description: "Open the available cleanup spots listed by campus administrators.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
-      annotations: { readOnlyHint: false, untrustedContentHint: false }, execute: () => { setTab("dashboard"); setReportOpen(true); return { status: "report_form_open" }; },
+      annotations: { readOnlyHint: true, untrustedContentHint: false }, execute: () => { setTab("spots"); return { status: "available_spots_open" }; },
     }, { signal: lifecycle.signal });
     void Promise.resolve(reportTool);
     return () => lifecycle.abort();
@@ -176,6 +196,7 @@ export default function Home() {
         <div className="brand"><span className="brand-mark"><Recycle /></span><span>zero<span>trash</span></span></div>
         <TabsList className="side-tabs" aria-label="Primary navigation">
           <TabsTrigger value="dashboard"><LayoutDashboard /> Dashboard</TabsTrigger>
+          <TabsTrigger value="spots"><MapPin /> Available spots <span className="nav-count">{state.availableSpots.length}</span></TabsTrigger>
           <TabsTrigger value="cleanups"><Recycle /> My cleanups <span className="nav-count">{pendingCount}</span></TabsTrigger>
           <TabsTrigger value="rewards"><Gift /> Rewards</TabsTrigger>
           <TabsTrigger value="vouchers"><Ticket /> My vouchers {state.redemptions.length > 0 && <span className="nav-count">{state.redemptions.length}</span>}</TabsTrigger>
@@ -185,21 +206,26 @@ export default function Home() {
 
       <section className="workspace">
         <header className="topbar"><div className="mobile-brand"><Recycle /> zerotrash</div><div className="top-actions"><button className="icon-button" aria-label="Notifications"><Bell /></button><div className="avatar">{initials}</div><div className="profile"><strong>{user.name}</strong><span>{user.email}</span></div><button className="icon-button logout-button" aria-label="Log out" title="Log out" onClick={() => void logOut()}><LogOut /></button></div></header>
-        <TabsList className="mobile-tabs" aria-label="Primary navigation"><TabsTrigger value="dashboard">Home</TabsTrigger><TabsTrigger value="cleanups">Cleanups</TabsTrigger><TabsTrigger value="rewards">Rewards</TabsTrigger><TabsTrigger value="vouchers">Vouchers</TabsTrigger></TabsList>
+        <TabsList className="mobile-tabs" aria-label="Primary navigation"><TabsTrigger value="dashboard">Home</TabsTrigger><TabsTrigger value="spots">Spots</TabsTrigger><TabsTrigger value="cleanups">Cleanups</TabsTrigger><TabsTrigger value="rewards">Rewards</TabsTrigger><TabsTrigger value="vouchers">Vouchers</TabsTrigger></TabsList>
 
         <TabsContent value="dashboard" className="content">
-          <section className="welcome"><div><p className="eyebrow green">YOUR CAMPUS IMPACT</p><h1>Good {greeting}, {firstName}.</h1><p>{pendingCount ? `${pendingCount} cleanup${pendingCount === 1 ? "" : "s"} need your next step.` : "Your campus is looking cleaner already."} Ready to make a difference?</p></div><Button className="report-button" size="lg" onClick={() => setReportOpen(true)}><Plus /> Report trash</Button></section>
+          <section className="welcome"><div><p className="eyebrow green">YOUR CAMPUS IMPACT</p><h1>Good {greeting}, {firstName}.</h1><p>{pendingCount ? `${pendingCount} cleanup${pendingCount === 1 ? "" : "s"} need your next step.` : `${state.availableSpots.length} campus spot${state.availableSpots.length === 1 ? " is" : "s are"} ready to be cleaned.`}</p></div><Button className="report-button" size="lg" onClick={() => setTab("spots")}><Navigation /> Find a cleanup</Button></section>
           <section className="stats-grid" aria-label="Impact summary">
             <article className="stat-card green-card"><div><span className="stat-label">AVAILABLE BALANCE</span><strong>{state.balance}</strong><span className="unit">credits</span></div><div className="coin"><Sparkles /></div><button onClick={() => setTab("rewards")}>Redeem rewards <span>→</span></button></article>
             <article className="stat-card"><span className="stat-label">TOTAL COLLECTED</span><strong>{state.totalWeight.toFixed(1)} <span>kg</span></strong><p>Across {state.verifiedCount} verified cleanups</p></article>
             <article className="stat-card"><span className="stat-label">CAMPUS RANK</span><strong>#12</strong><p><span className="up">↑ 3 places</span> this month</p></article>
           </section>
-          <section className="lower-grid"><article className="panel cleanups-panel"><div className="panel-head"><div><span className="kicker">YOUR CLEANUPS</span><h2>{state.reports.length ? "Keep the streak alive" : "Start your first cleanup"}</h2></div>{state.reports.length > 0 && <button onClick={() => setTab("cleanups")}>View all</button>}</div>{state.reports.length ? state.reports.slice(0, 2).map((report) => <CleanupRow key={report.id} report={report} onAfter={setAfterReport} />) : <div className="empty-state"><span><Camera /></span><div><strong>No reports yet</strong><p>Spot some trash on campus? Add a before photo to begin.</p></div><Button variant="outline" onClick={() => setReportOpen(true)}>Report a spot</Button></div>}</article><ProcessPanel /></section>
+          <section className="lower-grid"><article className="panel cleanups-panel"><div className="panel-head"><div><span className="kicker">YOUR CLEANUPS</span><h2>{state.reports.length ? "Keep the streak alive" : "Choose your first spot"}</h2></div>{state.reports.length > 0 && <button onClick={() => setTab("cleanups")}>View all</button>}</div>{state.reports.length ? state.reports.slice(0, 2).map((report) => <CleanupRow key={report.id} report={report} onAfter={setAfterReport} />) : <div className="empty-state"><span><MapPin /></span><div><strong>No assigned spots yet</strong><p>Choose a location listed by the admin and add your before photo there.</p></div><Button variant="outline" onClick={() => setTab("spots")}>View open spots</Button></div>}</article><ProcessPanel /></section>
+        </TabsContent>
+
+        <TabsContent value="spots" className="content page-content">
+          <section className="page-title"><div><p className="eyebrow green">ADMIN-LISTED LOCATIONS</p><h1>Available cleanup spots</h1><p>Go to a listed location, then upload a before photo with your device location to claim it.</p></div><div className="spots-count"><MapPin /><span><small>AVAILABLE NOW</small><strong>{state.availableSpots.length} spot{state.availableSpots.length === 1 ? "" : "s"}</strong></span></div></section>
+          {state.availableSpots.length ? <div className="spot-grid">{state.availableSpots.map((spot) => <article className="spot-card" key={spot.id}><header><span><MapPin /></span><b>SPOT #{String(spot.id).padStart(3, "0")}</b></header><div><small>{spot.wasteType}</small><h2>{spot.location}</h2><p>{spot.notes || "Go to this location and capture the trash before you begin cleaning."}</p></div><footer><span><Navigation /> Location required</span><Button onClick={() => setStartSpot(spot)}><Camera /> Upload before photo</Button></footer></article>)}</div> : <div className="empty-page"><span><MapPin /></span><h2>No open spots right now.</h2><p>The admin will publish new campus locations here when cleanup is needed.</p></div>}
         </TabsContent>
 
         <TabsContent value="cleanups" className="content page-content">
-          <section className="page-title"><div><p className="eyebrow green">PROOF TO PROGRESS</p><h1>My cleanups</h1><p>Each report moves through cleanup, collection-centre weighing and verification.</p></div><Button className="report-button" onClick={() => setReportOpen(true)}><Plus /> New report</Button></section>
-          <div className="report-list">{state.reports.length ? state.reports.map((report) => <article className="report-card" key={report.id}><div className="report-thumb">{report.beforeKey ? <img src={`/api/images/${encodeURIComponent(report.beforeKey)}`} alt="Trash before cleanup" /> : <Camera />}</div><div className="report-main"><div className="report-title-row"><div><span className="status-step">REPORT #{String(report.id).padStart(3, "0")}</span><h2>{report.location}</h2></div><span className={`status ${statusCopy[report.status].className}`}>{statusCopy[report.status].label}</span></div><div className="report-meta"><span><Recycle /> {report.wasteType}</span><span><MapPin /> Campus</span>{report.weight ? <span><Scale /> {report.weight.toFixed(1)} kg</span> : null}</div><div className="journey"><span className="done"><i><Check /></i>Reported</span><b /><span className={report.status !== "awaiting_cleanup" ? "done" : ""}><i>{report.status !== "awaiting_cleanup" ? <Check /> : "2"}</i>Cleaned</span><b /><span className={report.status === "verified" ? "done" : ""}><i>{report.status === "verified" ? <Check /> : "3"}</i>Verified</span></div><div className="report-actions">{report.status === "awaiting_cleanup" && <Button onClick={() => setAfterReport(report)}><Camera /> Add after photo</Button>}{report.status === "awaiting_weighing" && <span className="centre-wait"><Scale /> Take the waste to a collection centre for verification</span>}{report.status === "verified" && <span className="earned"><CircleDollarSign /> +{report.credits} credits earned</span>}</div></div></article>) : <div className="empty-page"><span><Recycle /></span><h2>Your cleanup journey starts here.</h2><p>Report a trash spot with a clear before photo, then return after you clean it.</p><Button onClick={() => setReportOpen(true)}><Plus /> Create first report</Button></div>}</div>
+          <section className="page-title"><div><p className="eyebrow green">PROOF TO PROGRESS</p><h1>My cleanups</h1><p>Your claimed spots move from geotagged before proof to after proof and verification.</p></div><Button className="report-button" onClick={() => setTab("spots")}><MapPin /> Find another spot</Button></section>
+          <div className="report-list">{state.reports.length ? state.reports.map((report) => <article className="report-card" key={report.id}><div className="report-thumb">{report.beforeKey ? <img src={`/api/images/${encodeURIComponent(report.beforeKey)}`} alt="Trash before cleanup" /> : <Camera />}</div><div className="report-main"><div className="report-title-row"><div><span className="status-step">SPOT #{String(report.id).padStart(3, "0")}</span><h2>{report.location}</h2></div><span className={`status ${statusCopy[report.status].className}`}>{statusCopy[report.status].label}</span></div><div className="report-meta"><span><Recycle /> {report.wasteType}</span><span><MapPin /> Before location saved</span>{report.weight ? <span><Scale /> {report.weight.toFixed(1)} kg</span> : null}</div><div className="journey"><span className="done"><i><Check /></i>Before proof</span><b /><span className={report.status !== "awaiting_after" ? "done" : ""}><i>{report.status !== "awaiting_after" ? <Check /> : "2"}</i>After proof</span><b /><span className={report.status === "verified" ? "done" : ""}><i>{report.status === "verified" ? <Check /> : "3"}</i>Verified</span></div><div className="report-actions">{report.status === "awaiting_after" && <Button onClick={() => setAfterReport(report)}><Camera /> Add after photo</Button>}{report.status === "awaiting_weighing" && <span className="centre-wait"><Scale /> Take the waste to a collection centre for verification</span>}{report.status === "verified" && <span className="earned"><CircleDollarSign /> +{report.credits} credits earned</span>}</div></div></article>) : <div className="empty-page"><span><Recycle /></span><h2>Your cleanup journey starts with a listed spot.</h2><p>Choose an admin-listed location and upload the before photo when you arrive.</p><Button onClick={() => setTab("spots")}><MapPin /> Browse available spots</Button></div>}</div>
         </TabsContent>
 
         <TabsContent value="rewards" className="content page-content">
@@ -214,9 +240,9 @@ export default function Home() {
         </TabsContent>
       </section>
 
-      <Dialog open={reportOpen} onOpenChange={setReportOpen}><DialogContent className="form-dialog"><DialogHeader><span className="dialog-icon"><MapPin /></span><DialogTitle>Report a trash spot</DialogTitle><DialogDescription>Add the location and a clear before photo. You can return after cleaning it.</DialogDescription></DialogHeader><form onSubmit={(event) => { event.preventDefault(); void submitReport(event.currentTarget); }}><Field label="Where is it?"><input name="location" required placeholder="e.g. Behind the science block" /></Field><Field label="Waste type"><Select name="wasteType" defaultValue="Mixed waste"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Mixed waste">Mixed waste</SelectItem><SelectItem value="Plastic">Plastic</SelectItem><SelectItem value="Paper">Paper</SelectItem><SelectItem value="Glass & metal">Glass & metal</SelectItem><SelectItem value="E-waste">E-waste</SelectItem></SelectContent></Select></Field><Field label="Before photo"><PhotoPicker stage="before" /></Field><Field label="Notes (optional)"><textarea name="notes" rows={3} placeholder="Add a landmark or useful detail" /></Field><DialogFooter><Button type="button" variant="outline" onClick={() => setReportOpen(false)}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? "Saving…" : "Submit report"}</Button></DialogFooter></form></DialogContent></Dialog>
+      <Dialog open={!!startSpot} onOpenChange={(open) => !open && setStartSpot(null)}><DialogContent className="form-dialog"><DialogHeader><span className="dialog-icon"><Navigation /></span><DialogTitle>Start cleanup at {startSpot?.location}</DialogTitle><DialogDescription>Upload the trash before cleanup. Your current device location will be attached when you submit.</DialogDescription></DialogHeader><form onSubmit={(event) => { event.preventDefault(); void submitBeforePhoto(event.currentTarget); }}><Field label="Admin-listed location"><div className="readonly-field">{startSpot?.location}</div></Field>{startSpot?.notes && <div className="spot-instructions"><small>ADMIN INSTRUCTIONS</small><p>{startSpot.notes}</p></div>}<Field label="Before photo"><PhotoPicker stage="before" /></Field><div className="geotag-note"><Navigation /><span><strong>Location is required</strong><small>Your coordinates are saved only with this cleanup proof.</small></span></div><DialogFooter><Button type="button" variant="outline" onClick={() => setStartSpot(null)}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? "Getting location…" : "Claim spot & upload"}</Button></DialogFooter></form></DialogContent></Dialog>
 
-      <Dialog open={!!afterReport} onOpenChange={(open) => !open && setAfterReport(null)}><DialogContent className="form-dialog"><DialogHeader><span className="dialog-icon"><Camera /></span><DialogTitle>Add your after photo</DialogTitle><DialogDescription>Show the cleaned area clearly. This sends the cleanup to the admin verification queue.</DialogDescription></DialogHeader><form onSubmit={(event) => { event.preventDefault(); void submitAfterPhoto(event.currentTarget); }}><Field label="Cleanup location"><div className="readonly-field">{afterReport?.location}</div></Field><Field label="After photo"><PhotoPicker stage="after" /></Field><DialogFooter><Button type="button" variant="outline" onClick={() => setAfterReport(null)}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? "Uploading…" : "Send for verification"}</Button></DialogFooter></form></DialogContent></Dialog>
+      <Dialog open={!!afterReport} onOpenChange={(open) => !open && setAfterReport(null)}><DialogContent className="form-dialog"><DialogHeader><span className="dialog-icon"><Camera /></span><DialogTitle>Add your after photo</DialogTitle><DialogDescription>Show the cleaned area clearly. Your current location will be attached before this enters the admin queue.</DialogDescription></DialogHeader><form onSubmit={(event) => { event.preventDefault(); void submitAfterPhoto(event.currentTarget); }}><Field label="Cleanup location"><div className="readonly-field">{afterReport?.location}</div></Field><Field label="After photo"><PhotoPicker stage="after" /></Field><div className="geotag-note"><Navigation /><span><strong>Location will be captured</strong><small>This confirms the after photo was taken at the cleanup spot.</small></span></div><DialogFooter><Button type="button" variant="outline" onClick={() => setAfterReport(null)}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? "Getting location…" : "Send for verification"}</Button></DialogFooter></form></DialogContent></Dialog>
 
       <Dialog open={!!redeemReward} onOpenChange={(open) => !open && setRedeemReward(null)}><DialogContent className="redeem-dialog"><DialogHeader><span className="dialog-icon"><Gift /></span><DialogTitle>Redeem {redeemReward?.detail}</DialogTitle><DialogDescription>{redeemReward?.value} credits will be exchanged for a ₹{redeemReward?.value} voucher from {redeemReward?.name}.</DialogDescription></DialogHeader><div className="redemption-math"><span>{state.balance} current credits</span><span>− {redeemReward?.value ?? 0} voucher</span><strong>{state.balance - (redeemReward?.value ?? 0)} credits left</strong></div><DialogFooter><Button type="button" variant="outline" onClick={() => setRedeemReward(null)}>Keep credits</Button><Button onClick={() => void confirmRedeem()} disabled={busy}>{busy ? "Redeeming…" : "Confirm redemption"}</Button></DialogFooter></DialogContent></Dialog>
       <Toaster position="top-right" richColors />
@@ -290,10 +316,10 @@ function PhotoPicker({ stage }: { stage: "before" | "after" }) {
 
 function CleanupRow({ report, onAfter }: { report: Report; onAfter: (report: Report) => void }) {
   const status = statusCopy[report.status];
-  return <div className="cleanup-row"><div className={`cleanup-icon ${report.status === "verified" ? "done" : ""}`}>{report.status === "verified" ? <Recycle /> : <MapPin />}</div><div><strong>{report.location}</strong><span>{report.weight ? `${report.weight.toFixed(1)} kg · ` : ""}{new Intl.DateTimeFormat("en-IN", { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(report.createdAt))}</span></div><span className={`status ${status.className}`}>{status.label}</span>{report.status === "awaiting_cleanup" ? <button className="small-action" onClick={() => onAfter(report)}>Add after photo</button> : report.status === "awaiting_weighing" ? <span className="centre-wait compact"><Scale /> Centre check</span> : <strong className="credit-gain">+{report.credits}</strong>}</div>;
+  return <div className="cleanup-row"><div className={`cleanup-icon ${report.status === "verified" ? "done" : ""}`}>{report.status === "verified" ? <Recycle /> : <MapPin />}</div><div><strong>{report.location}</strong><span>{report.weight ? `${report.weight.toFixed(1)} kg · ` : ""}{new Intl.DateTimeFormat("en-IN", { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(report.createdAt))}</span></div><span className={`status ${status.className}`}>{status.label}</span>{report.status === "awaiting_after" ? <button className="small-action" onClick={() => onAfter(report)}>Add after photo</button> : report.status === "awaiting_weighing" ? <span className="centre-wait compact"><Scale /> Centre check</span> : <strong className="credit-gain">+{report.credits}</strong>}</div>;
 }
 
-function ProcessPanel() { return <article className="panel process-panel"><span className="kicker">HOW IT WORKS</span><h2>Trash to reward</h2><ol className="steps"><li><span>01</span><div><strong>Spot it</strong><p>Upload a photo and location.</p></div></li><li><span>02</span><div><strong>Clean it</strong><p>Add an after photo as proof.</p></div></li><li><span>03</span><div><strong>Centre verifies</strong><p>An admin records the weight.</p></div></li><li><span>04</span><div><strong>Earn it</strong><p>Get credits. Pick a voucher.</p></div></li></ol></article>; }
+function ProcessPanel() { return <article className="panel process-panel"><span className="kicker">HOW IT WORKS</span><h2>Listed spot to reward</h2><ol className="steps"><li><span>01</span><div><strong>Choose a spot</strong><p>Pick a location listed by the admin.</p></div></li><li><span>02</span><div><strong>Upload before</strong><p>Claim it with a geotagged photo.</p></div></li><li><span>03</span><div><strong>Clean and prove</strong><p>Add a geotagged after photo.</p></div></li><li><span>04</span><div><strong>Get verified</strong><p>Centre weight unlocks your credits.</p></div></li></ol></article>; }
 
 function formatDashboardDate(value: string) {
   return new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric" }).format(new Date(value.endsWith("Z") ? value : `${value.replace(" ", "T")}Z`));

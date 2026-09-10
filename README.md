@@ -29,4 +29,4 @@ The database and uploads remain on this laptop and survive restarts. They are ex
 - Volunteer: `volunteer@zerotrash.local` / `volunteer123`
 - Admin: `admin@zerotrash.local` / `admin123`
 
-The backend supports registration, separate role sessions, before/after photo evidence, admin-only weighing, automatic credits at 30 credits per kilogram, voucher redemption, and protected image access.
+The backend supports registration, separate role sessions, admin-listed cleanup spots, volunteer claiming with geotagged before/after photo evidence, admin-only weighing, automatic credits at 30 credits per kilogram, voucher redemption, and protected image access.
