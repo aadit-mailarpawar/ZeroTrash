@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Bell, Camera, Check, CircleDollarSign, Gift, LayoutDashboard, LogOut,
   MapPin, Plus, Recycle, Scale, Sparkles, Store, Ticket, Upload,
@@ -32,6 +32,22 @@ const statusCopy = {
   awaiting_weighing: { label: "Ready to weigh", className: "weighing" },
   verified: { label: "Verified", className: "verified" },
 };
+
+const acceptedPhotoTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+const maxPhotoBytes = 5 * 1024 * 1024;
+
+async function readApiResult<T extends object>(response: Response): Promise<T & { error?: string }> {
+  const body = await response.text();
+  if (!body) return {} as T & { error?: string };
+  try {
+    return JSON.parse(body) as T & { error?: string };
+  } catch {
+    const error = response.status === 413
+      ? "That photo is too large. Choose one under 5 MB."
+      : "The upload could not be completed. Try a JPG, PNG or WebP photo.";
+    return { error } as T & { error?: string };
+  }
+}
 
 export default function Home() {
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -87,7 +103,7 @@ export default function Home() {
     setBusy(true);
     try {
       const response = await fetch("/api/reports", { method: "POST", body: new FormData(form) });
-      const result = await response.json() as { error?: string };
+      const result = await readApiResult(response);
       if (!response.ok) throw new Error(result.error || "Could not save the report");
       await loadState(); setReportOpen(false); form.reset(); toast.success("Trash spot reported. Let’s clean it up!");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save the report"); }
@@ -99,7 +115,7 @@ export default function Home() {
     setBusy(true);
     try {
       const response = await fetch(`/api/reports/${afterReport.id}/after`, { method: "POST", body: new FormData(form) });
-      const result = await response.json() as { error?: string };
+      const result = await readApiResult(response);
       if (!response.ok) throw new Error(result.error || "Could not save the photo");
       await loadState(); setAfterReport(null); toast.success("Cleanup proof added. Take it to a collection centre next.");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save the photo"); }
@@ -210,9 +226,9 @@ export default function Home() {
         </TabsContent>
       </section>
 
-      <Dialog open={reportOpen} onOpenChange={setReportOpen}><DialogContent className="form-dialog"><DialogHeader><span className="dialog-icon"><MapPin /></span><DialogTitle>Report a trash spot</DialogTitle><DialogDescription>Add the location and a clear before photo. You can return after cleaning it.</DialogDescription></DialogHeader><form onSubmit={(event) => { event.preventDefault(); void submitReport(event.currentTarget); }}><Field label="Where is it?"><input name="location" required placeholder="e.g. Behind the science block" /></Field><Field label="Waste type"><Select name="wasteType" defaultValue="Mixed waste"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Mixed waste">Mixed waste</SelectItem><SelectItem value="Plastic">Plastic</SelectItem><SelectItem value="Paper">Paper</SelectItem><SelectItem value="Glass & metal">Glass & metal</SelectItem><SelectItem value="E-waste">E-waste</SelectItem></SelectContent></Select></Field><Field label="Before photo"><label className="upload-box"><Upload /><strong>Choose a photo</strong><span>JPG, PNG or WebP · up to 5 MB</span><input name="photo" type="file" accept="image/jpeg,image/png,image/webp" required /></label></Field><Field label="Notes (optional)"><textarea name="notes" rows={3} placeholder="Add a landmark or useful detail" /></Field><DialogFooter><Button type="button" variant="outline" onClick={() => setReportOpen(false)}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? "Saving…" : "Submit report"}</Button></DialogFooter></form></DialogContent></Dialog>
+      <Dialog open={reportOpen} onOpenChange={setReportOpen}><DialogContent className="form-dialog"><DialogHeader><span className="dialog-icon"><MapPin /></span><DialogTitle>Report a trash spot</DialogTitle><DialogDescription>Add the location and a clear before photo. You can return after cleaning it.</DialogDescription></DialogHeader><form onSubmit={(event) => { event.preventDefault(); void submitReport(event.currentTarget); }}><Field label="Where is it?"><input name="location" required placeholder="e.g. Behind the science block" /></Field><Field label="Waste type"><Select name="wasteType" defaultValue="Mixed waste"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Mixed waste">Mixed waste</SelectItem><SelectItem value="Plastic">Plastic</SelectItem><SelectItem value="Paper">Paper</SelectItem><SelectItem value="Glass & metal">Glass & metal</SelectItem><SelectItem value="E-waste">E-waste</SelectItem></SelectContent></Select></Field><Field label="Before photo"><PhotoPicker stage="before" /></Field><Field label="Notes (optional)"><textarea name="notes" rows={3} placeholder="Add a landmark or useful detail" /></Field><DialogFooter><Button type="button" variant="outline" onClick={() => setReportOpen(false)}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? "Saving…" : "Submit report"}</Button></DialogFooter></form></DialogContent></Dialog>
 
-      <Dialog open={!!afterReport} onOpenChange={(open) => !open && setAfterReport(null)}><DialogContent className="form-dialog"><DialogHeader><span className="dialog-icon"><Camera /></span><DialogTitle>Add your after photo</DialogTitle><DialogDescription>Show the cleaned area clearly. This unlocks the collection-centre weigh-in.</DialogDescription></DialogHeader><form onSubmit={(event) => { event.preventDefault(); void submitAfterPhoto(event.currentTarget); }}><Field label="Cleanup location"><div className="readonly-field">{afterReport?.location}</div></Field><Field label="After photo"><label className="upload-box"><Upload /><strong>Choose the cleaned photo</strong><span>JPG, PNG or WebP · up to 5 MB</span><input name="photo" type="file" accept="image/jpeg,image/png,image/webp" required /></label></Field><DialogFooter><Button type="button" variant="outline" onClick={() => setAfterReport(null)}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? "Uploading…" : "Save cleanup proof"}</Button></DialogFooter></form></DialogContent></Dialog>
+      <Dialog open={!!afterReport} onOpenChange={(open) => !open && setAfterReport(null)}><DialogContent className="form-dialog"><DialogHeader><span className="dialog-icon"><Camera /></span><DialogTitle>Add your after photo</DialogTitle><DialogDescription>Show the cleaned area clearly. This unlocks the collection-centre weigh-in.</DialogDescription></DialogHeader><form onSubmit={(event) => { event.preventDefault(); void submitAfterPhoto(event.currentTarget); }}><Field label="Cleanup location"><div className="readonly-field">{afterReport?.location}</div></Field><Field label="After photo"><PhotoPicker stage="after" /></Field><DialogFooter><Button type="button" variant="outline" onClick={() => setAfterReport(null)}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? "Uploading…" : "Save cleanup proof"}</Button></DialogFooter></form></DialogContent></Dialog>
 
       <Dialog open={!!weighReport} onOpenChange={(open) => !open && setWeighReport(null)}><DialogContent className="form-dialog"><DialogHeader><span className="dialog-icon"><Scale /></span><DialogTitle>Collection-centre weigh-in</DialogTitle><DialogDescription>Enter the verified weight. ZeroTrash awards 30 credits for every kilogram.</DialogDescription></DialogHeader><Field label="Collection centre"><Select value={centre} onValueChange={setCentre}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Main Gate Green Point">Main Gate Green Point</SelectItem><SelectItem value="Hostel Block Collection Bay">Hostel Block Collection Bay</SelectItem><SelectItem value="Sports Complex Drop-off">Sports Complex Drop-off</SelectItem></SelectContent></Select></Field><Field label="Verified weight (kg)"><input type="number" min="0.1" max="100" step="0.1" value={weight} onChange={(event) => setWeight(event.target.value)} placeholder="0.0" /></Field>{Number(weight) > 0 && <div className="credit-preview"><Sparkles /><span>You’ll earn</span><strong>{Math.round(Number(weight) * 30)} credits</strong></div>}<DialogFooter><Button type="button" variant="outline" onClick={() => setWeighReport(null)}>Cancel</Button><Button onClick={() => void submitWeight()} disabled={busy}>{busy ? "Verifying…" : "Verify & award credits"}</Button></DialogFooter></DialogContent></Dialog>
 
@@ -227,6 +243,64 @@ function DashboardLoading() {
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <div className="field"><span>{label}</span>{children}</div>; }
+
+function PhotoPicker({ stage }: { stage: "before" | "after" }) {
+  const inputId = useId();
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!photo) { setPreviewUrl(null); return; }
+    const nextUrl = URL.createObjectURL(photo);
+    setPreviewUrl(nextUrl);
+    return () => URL.revokeObjectURL(nextUrl);
+  }, [photo]);
+
+  const selectPhoto = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const nextPhoto = input.files?.[0] ?? null;
+    input.setCustomValidity("");
+    setError("");
+
+    if (!nextPhoto) { setPhoto(null); return; }
+    if (!acceptedPhotoTypes.has(nextPhoto.type)) {
+      const message = "Choose a JPG, PNG or WebP photo.";
+      input.value = "";
+      input.setCustomValidity(message);
+      setPhoto(null);
+      setError(message);
+      return;
+    }
+    if (nextPhoto.size > maxPhotoBytes) {
+      const message = "This photo is over 5 MB. Choose a smaller image.";
+      input.value = "";
+      input.setCustomValidity(message);
+      setPhoto(null);
+      setError(message);
+      return;
+    }
+    setPhoto(nextPhoto);
+  };
+
+  const label = stage === "before" ? "trash before cleanup" : "cleaned area";
+
+  return <div className="photo-picker">
+    <label className={`upload-box${photo ? " has-photo" : ""}`} htmlFor={inputId}>
+      {previewUrl && photo ? <>
+        <span className="upload-preview"><img src={previewUrl} alt={`Preview of ${label}`} /></span>
+        <span className="upload-copy"><strong>{photo.name}</strong><span>{(photo.size / (1024 * 1024)).toFixed(1)} MB · Ready to upload</span><b>Click to change photo</b></span>
+        <Check className="upload-check" aria-hidden="true" />
+      </> : <>
+        <Upload aria-hidden="true" />
+        <strong>{stage === "before" ? "Choose the before photo" : "Choose the cleaned photo"}</strong>
+        <span>Click or drop a JPG, PNG or WebP · up to 5 MB</span>
+      </>}
+      <input id={inputId} name="photo" type="file" accept="image/jpeg,image/png,image/webp" required onChange={selectPhoto} aria-describedby={`${inputId}-status`} />
+    </label>
+    <span id={`${inputId}-status`} className={`photo-status${error ? " error" : ""}`} aria-live="polite">{error || (photo ? "Photo selected successfully." : "No photo selected yet.")}</span>
+  </div>;
+}
 
 function CleanupRow({ report, onAfter, onWeigh }: { report: Report; onAfter: (report: Report) => void; onWeigh: (report: Report) => void }) {
   const status = statusCopy[report.status];
