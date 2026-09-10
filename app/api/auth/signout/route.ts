@@ -1,13 +1,12 @@
-import { endSession } from "@/lib/local-auth";
+import { backendFetch, endSession, getBackendSession } from "@/lib/local-auth";
 
 export async function POST(request: Request) {
+  const role = new URL(request.url).searchParams.get("role") === "admin" ? "admin" : "volunteer";
   try {
-    const role = new URL(request.url).searchParams.get("role") === "admin" ? "admin" : "volunteer";
-    const headers = new Headers();
-    for (const cookie of await endSession(request, role)) headers.append("Set-Cookie", cookie);
-    return Response.json({ ok: true }, { headers });
-  } catch (error) {
-    console.error("signout failed", error);
-    return Response.json({ error: "Could not sign out" }, { status: 500 });
-  }
+    const session = await getBackendSession(request, role);
+    if (session) await backendFetch("/api/auth/logout", { method: "POST" }, session.token);
+  } catch { /* Always clear the browser cookie, even when the local backend is unavailable. */ }
+  const headers = new Headers();
+  for (const cookie of endSession(role)) headers.append("Set-Cookie", cookie);
+  return Response.json({ ok: true }, { headers });
 }

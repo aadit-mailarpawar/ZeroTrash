@@ -1,20 +1,18 @@
-import { getBucket, getRawDb } from "@/db/bindings";
-import { getLocalUser } from "@/lib/local-auth";
+import { backendFetch, getBackendSession } from "@/lib/local-auth";
 
 export async function GET(request: Request, { params }: { params: Promise<{ key: string[] }> }) {
   try {
-    const admin = await getLocalUser(request, "admin");
-    const user = admin ?? await getLocalUser(request, "volunteer");
-    if (!user) return new Response("Not signed in", { status: 401 });
+    const session = await getBackendSession(request, "admin") ?? await getBackendSession(request, "volunteer");
+    if (!session) return new Response("Not signed in", { status: 401 });
     const key = (await params).key.join("/");
-    if (!key.startsWith("cleanups/")) return new Response("Not found", { status: 404 });
-    if (user.role !== "admin") {
-      const owned = await getRawDb().prepare("SELECT id FROM reports WHERE volunteer_email = ? AND (before_key = ? OR after_key = ?)").bind(user.email, key, key).first();
-      if (!owned) return new Response("Not found", { status: 404 });
-    }
-    const object = await getBucket().get(key);
-    if (!object) return new Response("Not found", { status: 404 });
-    const headers = new Headers(); object.writeHttpMetadata(headers); headers.set("etag", object.httpEtag); headers.set("cache-control", "private, max-age=3600");
-    return new Response(object.body, { headers });
-  } catch { return new Response("Image unavailable", { status: 503 }); }
+    if (key.includes("/") || key.includes("\\")) return new Response("Not found", { status: 404 });
+    const response = await backendFetch(`/api/images/${encodeURIComponent(key)}`, {}, session.token);
+    const headers = new Headers();
+    const contentType = response.headers.get("content-type");
+    if (contentType) headers.set("Content-Type", contentType);
+    headers.set("Cache-Control", "private, max-age=3600");
+    return new Response(response.body, { status: response.status, headers });
+  } catch {
+    return new Response("Image unavailable", { status: 503 });
+  }
 }
