@@ -3,10 +3,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const command = process.platform === "win32" ? "npm.cmd" : "npm";
+function startDevServer(cwd) {
+  const options = { cwd, stdio: "inherit" };
+  return process.platform === "win32"
+    ? spawn(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", "npm run dev"], options)
+    : spawn("npm", ["run", "dev"], options);
+}
+
 const children = [
-  spawn(command, ["run", "dev"], { cwd: path.join(root, "backend"), stdio: "inherit" }),
-  spawn(command, ["run", "dev"], { cwd: root, stdio: "inherit" }),
+  startDevServer(path.join(root, "backend")),
+  startDevServer(root),
 ];
 
 let stopping = false;
