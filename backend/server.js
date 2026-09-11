@@ -13,6 +13,7 @@ const uploadDirectory = path.join(root, "uploads");
 fs.mkdirSync(uploadDirectory, { recursive: true });
 
 const port = Number(process.env.PORT || 5050);
+const host = process.env.HOST || "127.0.0.1";
 const requirePhotoLocation = process.env.REQUIRE_PHOTO_LOCATION === "true";
 const app = express();
 app.disable("x-powered-by");
@@ -244,4 +245,4 @@ app.use((error, request, response, _next) => {
   response.status(500).json({ error: "The backend could not complete this request" });
 });
 
-app.listen(port, "127.0.0.1", () => console.log(`ZeroTrash backend running at http://localhost:${port}`));
+app.listen(port, host, () => console.log(`ZeroTrash backend running at http://${host}:${port}`));

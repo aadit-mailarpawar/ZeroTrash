@@ -1,5 +1,6 @@
 const LEGACY_COOKIE_NAME = "zt_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 7;
+const secureCookie = process.env.SESSION_COOKIE_SECURE === "true" ? "; Secure" : "";
 
 export type UserRole = "volunteer" | "admin";
 export type LocalUser = { id: string; name: string; email: string; role: UserRole; pointsBalance: number };
@@ -31,7 +32,7 @@ function frontendRole(role: BackendUser["role"]): UserRole {
 }
 
 export function startSession(token: string, role: UserRole) {
-  return `${cookieName(role)}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_SECONDS}`;
+  return `${cookieName(role)}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_SECONDS}${secureCookie}`;
 }
 
 export async function getBackendSession(request: Request, requiredRole: UserRole) {
@@ -65,5 +66,5 @@ export function isAdminUser(user: LocalUser | null): user is LocalUser & { role:
 }
 
 export function endSession(role: UserRole) {
-  return [cookieName(role), LEGACY_COOKIE_NAME].map((name) => `${name}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+  return [cookieName(role), LEGACY_COOKIE_NAME].map((name) => `${name}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureCookie}`);
 }

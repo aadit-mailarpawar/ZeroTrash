@@ -115,8 +115,18 @@ function seedUser(name, email, password, role) {
   db.prepare("INSERT INTO users (name, email, password_hash, password_salt, role) VALUES (?, ?, ?, ?, ?)").run(name, email, hash, salt, role);
 }
 
-seedUser("ZeroTrash Admin", "admin@zerotrash.local", "admin123", "admin");
-seedUser("Demo Volunteer", "volunteer@zerotrash.local", "volunteer123", "volunteer");
+if (process.env.SEED_DEMO_USERS === "false") {
+  const adminName = String(process.env.ADMIN_NAME || "ZeroTrash Admin").trim().slice(0, 80);
+  const adminEmail = String(process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+  const adminPassword = String(process.env.ADMIN_PASSWORD || "");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminEmail) || adminPassword.length < 8) {
+    throw new Error("Production startup requires ADMIN_EMAIL and an ADMIN_PASSWORD of at least 8 characters");
+  }
+  seedUser(adminName || "ZeroTrash Admin", adminEmail, adminPassword, "admin");
+} else {
+  seedUser("ZeroTrash Admin", "admin@zerotrash.local", "admin123", "admin");
+  seedUser("Demo Volunteer", "volunteer@zerotrash.local", "volunteer123", "volunteer");
+}
 
 const rewardInsert = db.prepare("INSERT OR IGNORE INTO rewards (id, name, description, cost, stock) VALUES (?, ?, ?, ?, ?)");
 rewardInsert.run("cafe-100", "Campus Café", "₹100 food voucher", 100, 100);

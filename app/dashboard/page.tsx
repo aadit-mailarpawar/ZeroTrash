@@ -36,7 +36,7 @@ const statusCopy = {
 
 const acceptedPhotoTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 const maxPhotoBytes = 5 * 1024 * 1024;
-const photoLocationEnabled = import.meta.env.VITE_PHOTO_LOCATION_ENABLED === "true";
+const photoLocationEnabled = typeof process !== "undefined" && process.env.NEXT_PUBLIC_PHOTO_LOCATION_ENABLED === "true";
 
 function getCurrentCoordinates() {
   return new Promise<{ latitude: number; longitude: number }>((resolve, reject) => {
